@@ -13,13 +13,21 @@ function toSlug(text: string) {
     .slice(0, 40);
 }
 
+// Windows 환경에서 파이프로 설정 시 \r\n이 붙는 문제를 trim으로 처리
+const googleId = (process.env.AUTH_GOOGLE_ID ?? "").trim();
+const googleSecret = (process.env.AUTH_GOOGLE_SECRET ?? "").trim();
+const naverId = (process.env.AUTH_NAVER_ID ?? "").trim();
+const naverSecret = (process.env.AUTH_NAVER_SECRET ?? "").trim();
+const kakaoId = (process.env.AUTH_KAKAO_ID ?? "").trim();
+const kakaoSecret = (process.env.AUTH_KAKAO_SECRET ?? "").trim();
+
 const providers = [];
 
-if (process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET) {
+if (googleId && googleSecret) {
   providers.push(
     Google({
-      clientId: process.env.AUTH_GOOGLE_ID,
-      clientSecret: process.env.AUTH_GOOGLE_SECRET,
+      clientId: googleId,
+      clientSecret: googleSecret,
       authorization: {
         params: {
           scope:
@@ -32,20 +40,20 @@ if (process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET) {
   );
 }
 
-if (process.env.AUTH_NAVER_ID && process.env.AUTH_NAVER_SECRET) {
+if (naverId && naverSecret) {
   providers.push(
     Naver({
-      clientId: process.env.AUTH_NAVER_ID,
-      clientSecret: process.env.AUTH_NAVER_SECRET,
+      clientId: naverId,
+      clientSecret: naverSecret,
     }),
   );
 }
 
-if (process.env.AUTH_KAKAO_ID && process.env.AUTH_KAKAO_SECRET) {
+if (kakaoId && kakaoSecret) {
   providers.push(
     Kakao({
-      clientId: process.env.AUTH_KAKAO_ID,
-      clientSecret: process.env.AUTH_KAKAO_SECRET,
+      clientId: kakaoId,
+      clientSecret: kakaoSecret,
     }),
   );
 }
