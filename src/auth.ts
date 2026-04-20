@@ -2,7 +2,6 @@ import type { NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
 import Naver from "next-auth/providers/naver";
 import Kakao from "next-auth/providers/kakao";
-import Credentials from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 
@@ -14,63 +13,48 @@ function toSlug(text: string) {
     .slice(0, 40);
 }
 
+const providers = [];
+
+if (process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET) {
+  providers.push(
+    Google({
+      clientId: process.env.AUTH_GOOGLE_ID,
+      clientSecret: process.env.AUTH_GOOGLE_SECRET,
+      authorization: {
+        params: {
+          scope:
+            "openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly",
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    }),
+  );
+}
+
+if (process.env.AUTH_NAVER_ID && process.env.AUTH_NAVER_SECRET) {
+  providers.push(
+    Naver({
+      clientId: process.env.AUTH_NAVER_ID,
+      clientSecret: process.env.AUTH_NAVER_SECRET,
+    }),
+  );
+}
+
+if (process.env.AUTH_KAKAO_ID && process.env.AUTH_KAKAO_SECRET) {
+  providers.push(
+    Kakao({
+      clientId: process.env.AUTH_KAKAO_ID,
+      clientSecret: process.env.AUTH_KAKAO_SECRET,
+    }),
+  );
+}
+
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   session: { strategy: "database" as const },
   pages: { signIn: "/login" },
-  providers: [
-    ...(((process.env.AUTH_ENABLE_DEMO_LOGIN ?? "").trim().toLowerCase() === "true" ||
-      process.env.NODE_ENV !== "production")
-      ? [
-          Credentials({
-            id: "demo-login",
-            name: "Demo Login",
-            credentials: {
-              slug: { label: "Slug", type: "text" },
-            },
-            async authorize(credentials) {
-              const slug = String(credentials?.slug ?? "").trim();
-              if (!slug) return null;
-              const user = await prisma.user.findUnique({ where: { slug } });
-              if (!user) return null;
-              return { id: user.id, name: user.name, email: user.email };
-            },
-          }),
-        ]
-      : []),
-    ...(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET
-      ? [
-          Google({
-            clientId: process.env.AUTH_GOOGLE_ID,
-            clientSecret: process.env.AUTH_GOOGLE_SECRET,
-            authorization: {
-              params: {
-                scope:
-                  "openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly",
-                access_type: "offline",
-                prompt: "consent",
-              },
-            },
-          }),
-        ]
-      : []),
-    ...(process.env.AUTH_NAVER_ID && process.env.AUTH_NAVER_SECRET
-      ? [
-          Naver({
-            clientId: process.env.AUTH_NAVER_ID,
-            clientSecret: process.env.AUTH_NAVER_SECRET,
-          }),
-        ]
-      : []),
-    ...(process.env.AUTH_KAKAO_ID && process.env.AUTH_KAKAO_SECRET
-      ? [
-          Kakao({
-            clientId: process.env.AUTH_KAKAO_ID,
-            clientSecret: process.env.AUTH_KAKAO_SECRET,
-          }),
-        ]
-      : []),
-  ],
+  providers,
   callbacks: {
     async signIn({ user }) {
       const userId = user.id;
@@ -93,6 +77,7 @@ export const authOptions: NextAuthOptions = {
         },
       });
 
+      // 첫 로그인 시 개인 캘린더 자동 생성
       const personalKey = `personal-${slug}`;
       const hasPersonal = await prisma.calendar.findUnique({ where: { key: personalKey } });
       if (!hasPersonal) {
@@ -130,4 +115,3 @@ export const authOptions: NextAuthOptions = {
     },
   },
 };
-
