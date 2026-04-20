@@ -7,9 +7,33 @@ function forbidden() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 
+async function ensurePersonalCalendar(userId: string, userName: string | null, userSlug: string) {
+  try {
+    const personalKey = `personal-${userSlug || userId.slice(0, 8)}`;
+    const existing = await prisma.calendar.findUnique({ where: { key: personalKey } });
+    if (!existing) {
+      const cal = await prisma.calendar.create({
+        data: {
+          key: personalKey,
+          name: `${userName ?? "나"} 개인 일정`,
+          color: "bg-emerald-500/20 text-emerald-300",
+        },
+      });
+      await prisma.calendarMember.create({
+        data: { calendarId: cal.id, userId, role: "OWNER" },
+      });
+    }
+  } catch {
+    // 실패해도 나머지 데이터 로드는 계속
+  }
+}
+
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return forbidden();
+
+  // 매 로드마다 개인 캘린더 존재 여부 보장
+  await ensurePersonalCalendar(user.id, user.name ?? null, user.slug ?? "");
 
   const memberships = await prisma.calendarMember.findMany({
     where: { userId: user.id },
