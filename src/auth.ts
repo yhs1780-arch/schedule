@@ -30,10 +30,8 @@ if (googleId && googleSecret) {
       clientSecret: googleSecret,
       authorization: {
         params: {
-          scope:
-            "openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly",
-          access_type: "offline",
-          prompt: "consent",
+          scope: "openid email profile",
+          prompt: "select_account",
         },
       },
     }),
@@ -61,48 +59,55 @@ if (kakaoId && kakaoSecret) {
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   session: { strategy: "database" as const },
-  pages: { signIn: "/login" },
+  pages: { signIn: "/login", error: "/login" },
   providers,
   callbacks: {
     async signIn({ user }) {
       const userId = user.id;
       if (!userId) return false;
-      const dbUser = await prisma.user.findUnique({ where: { id: userId } });
-      if (!dbUser) return false;
 
-      const base = toSlug(dbUser.email ?? dbUser.name ?? dbUser.id);
-      let slug = base || `user-${dbUser.id.slice(0, 8)}`;
-      const slugOwner = await prisma.user.findUnique({ where: { slug } });
-      if (slugOwner && slugOwner.id !== dbUser.id) {
-        slug = `${slug}-${dbUser.id.slice(0, 6)}`;
-      }
+      try {
+        const dbUser = await prisma.user.findUnique({ where: { id: userId } });
+        // DB에서 찾지 못해도 로그인은 허용 (어댑터가 이미 생성함)
+        if (!dbUser) return true;
 
-      await prisma.user.update({
-        where: { id: dbUser.id },
-        data: {
-          slug,
-          role: dbUser.role || "MEMBER",
-        },
-      });
+        const base = toSlug(dbUser.email ?? dbUser.name ?? dbUser.id);
+        let slug = base || `user-${dbUser.id.slice(0, 8)}`;
+        const slugOwner = await prisma.user.findUnique({ where: { slug } });
+        if (slugOwner && slugOwner.id !== dbUser.id) {
+          slug = `${slug}-${dbUser.id.slice(0, 6)}`;
+        }
 
-      // 첫 로그인 시 개인 캘린더 자동 생성
-      const personalKey = `personal-${slug}`;
-      const hasPersonal = await prisma.calendar.findUnique({ where: { key: personalKey } });
-      if (!hasPersonal) {
-        const personal = await prisma.calendar.create({
+        await prisma.user.update({
+          where: { id: dbUser.id },
           data: {
-            key: personalKey,
-            name: `${dbUser.name ?? "사용자"} 개인 일정`,
-            color: "bg-emerald-500/20 text-emerald-300",
+            slug,
+            role: dbUser.role || "MEMBER",
           },
         });
-        await prisma.calendarMember.create({
-          data: {
-            calendarId: personal.id,
-            userId: dbUser.id,
-            role: "OWNER",
-          },
-        });
+
+        // 첫 로그인 시 개인 캘린더 자동 생성
+        const personalKey = `personal-${slug}`;
+        const hasPersonal = await prisma.calendar.findUnique({ where: { key: personalKey } });
+        if (!hasPersonal) {
+          const personal = await prisma.calendar.create({
+            data: {
+              key: personalKey,
+              name: `${dbUser.name ?? "사용자"} 개인 일정`,
+              color: "bg-emerald-500/20 text-emerald-300",
+            },
+          });
+          await prisma.calendarMember.create({
+            data: {
+              calendarId: personal.id,
+              userId: dbUser.id,
+              role: "OWNER",
+            },
+          });
+        }
+      } catch (err) {
+        // DB 작업 오류가 로그인 자체를 막지 않도록 처리
+        console.error("[signIn] callback error (login still allowed):", err);
       }
 
       return true;
