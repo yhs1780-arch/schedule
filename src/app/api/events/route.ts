@@ -78,6 +78,10 @@ export async function POST(request: Request) {
     calendarId?: string;
     title?: string;
     startAt?: string;
+    endAt?: string;
+    allDay?: boolean;
+    location?: string;
+    description?: string;
   };
   const calendarId = body.calendarId?.trim();
   const title = body.title?.trim();
@@ -88,43 +92,52 @@ export async function POST(request: Request) {
 
   if (user.role !== "OWNER") {
     const membership = await prisma.calendarMember.findFirst({
-      where: {
-        calendarId,
-        userId: user.id,
-        role: { in: ["OWNER", "EDITOR"] },
-      },
+      where: { calendarId, userId: user.id, role: { in: ["OWNER", "EDITOR"] } },
       select: { id: true },
     });
     if (!membership) return NextResponse.json({ error: "No permission" }, { status: 403 });
   }
+
+  const allDay = body.allDay ?? false;
+  const endAt = body.endAt?.trim() ? new Date(body.endAt.trim()) : null;
+  const location = body.location?.trim() || null;
+  const description = body.description?.trim() || null;
 
   const event = await prisma.event.create({
     data: {
       calendarId,
       title,
       startAt: new Date(startAt),
+      endAt,
+      allDay,
+      location,
+      description,
       createdById: user.id,
     },
   });
 
-  // 연동된 사용자는 서비스 일정 생성 시 Google Calendar에도 자동 반영
   try {
     const googleClient = await getGoogleCalendarClient(user.id);
     if (googleClient) {
+      const startDate = new Date(startAt);
+      const endDate = endAt ?? new Date(startDate.getTime() + 60 * 60 * 1000);
       const inserted = await googleClient.calendar.events.insert({
         calendarId: "primary",
         requestBody: {
           summary: title,
-          start: { dateTime: new Date(startAt).toISOString() },
-          end: { dateTime: new Date(new Date(startAt).getTime() + 60 * 60 * 1000).toISOString() },
+          location: location ?? undefined,
+          description: description ?? undefined,
+          start: allDay
+            ? { date: startDate.toISOString().split("T")[0] }
+            : { dateTime: startDate.toISOString() },
+          end: allDay
+            ? { date: endDate.toISOString().split("T")[0] }
+            : { dateTime: endDate.toISOString() },
         },
       });
       const googleEventId = inserted.data.id ?? null;
       if (googleEventId) {
-        await prisma.event.update({
-          where: { id: event.id },
-          data: { externalGoogleEventId: googleEventId },
-        });
+        await prisma.event.update({ where: { id: event.id }, data: { externalGoogleEventId: googleEventId } });
       }
     }
   } catch {

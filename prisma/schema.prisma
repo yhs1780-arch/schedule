@@ -57,6 +57,10 @@ model Event {
   calendarId  String
   title       String
   startAt     DateTime
+  endAt       DateTime?
+  allDay      Boolean         @default(false)
+  location    String?
+  description String?
   createdById String
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt

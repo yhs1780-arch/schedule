@@ -14,36 +14,53 @@ export async function PATCH(request: Request, context: Ctx) {
   if (!user) return unauthorized();
 
   const { eventId } = await context.params;
-  const body = (await request.json()) as { title?: string; startAt?: string };
-  const title = body.title?.trim();
-  const startAt = body.startAt?.trim();
-
-  if (!title && !startAt) {
-    return NextResponse.json({ error: "title or startAt is required" }, { status: 400 });
-  }
+  const body = (await request.json()) as {
+    title?: string;
+    startAt?: string;
+    endAt?: string | null;
+    allDay?: boolean;
+    location?: string | null;
+    description?: string | null;
+  };
 
   const editable = await canEditEvent(user.id, user.role, eventId);
   if (!editable) return NextResponse.json({ error: "No permission" }, { status: 403 });
 
-  const updateData: { title?: string; startAt?: Date } = {};
-  if (title) updateData.title = title;
-  if (startAt) updateData.startAt = new Date(startAt);
+  const updateData: {
+    title?: string;
+    startAt?: Date;
+    endAt?: Date | null;
+    allDay?: boolean;
+    location?: string | null;
+    description?: string | null;
+  } = {};
 
-  const updated = await prisma.event.update({
-    where: { id: eventId },
-    data: updateData,
-  });
+  if (body.title?.trim()) updateData.title = body.title.trim();
+  if (body.startAt?.trim()) updateData.startAt = new Date(body.startAt.trim());
+  if ("endAt" in body) updateData.endAt = body.endAt ? new Date(body.endAt) : null;
+  if ("allDay" in body) updateData.allDay = body.allDay;
+  if ("location" in body) updateData.location = body.location?.trim() || null;
+  if ("description" in body) updateData.description = body.description?.trim() || null;
+
+  if (Object.keys(updateData).length === 0) {
+    return NextResponse.json({ error: "no updatable field provided" }, { status: 400 });
+  }
+
+  const updated = await prisma.event.update({ where: { id: eventId }, data: updateData });
 
   try {
     if (updated.externalGoogleEventId) {
       const googleClient = await getGoogleCalendarClient(user.id);
       if (googleClient) {
-        const requestBody: { summary?: string; start?: object; end?: object } = {};
-        if (title) requestBody.summary = title;
-        if (startAt) {
-          const startDate = new Date(startAt);
-          requestBody.start = { dateTime: startDate.toISOString() };
-          requestBody.end = { dateTime: new Date(startDate.getTime() + 60 * 60 * 1000).toISOString() };
+        const requestBody: Record<string, unknown> = {};
+        if (updateData.title) requestBody.summary = updateData.title;
+        if (updateData.location !== undefined) requestBody.location = updateData.location ?? "";
+        if (updateData.description !== undefined) requestBody.description = updateData.description ?? "";
+        if (updateData.startAt) {
+          const s = updateData.startAt;
+          const e = updated.endAt ?? new Date(s.getTime() + 60 * 60 * 1000);
+          requestBody.start = { dateTime: s.toISOString() };
+          requestBody.end = { dateTime: e.toISOString() };
         }
         await googleClient.calendar.events.patch({
           calendarId: "primary",
@@ -57,11 +74,12 @@ export async function PATCH(request: Request, context: Ctx) {
   }
 
   const actionParts: string[] = [];
-  if (title) actionParts.push(`제목 수정 → ${title}`);
-  if (startAt) actionParts.push(`날짜 수정 → ${new Date(startAt).toLocaleString("ko-KR", { hour12: false })}`);
+  if (updateData.title) actionParts.push(`제목 → ${updateData.title}`);
+  if (updateData.startAt) actionParts.push(`날짜 → ${updateData.startAt.toLocaleString("ko-KR", { hour12: false })}`);
+  if (updateData.location !== undefined) actionParts.push(`장소 → ${updateData.location ?? "삭제"}`);
 
   await prisma.eventActivity.create({
-    data: { eventId, actorId: user.id, action: actionParts.join(", ") },
+    data: { eventId, actorId: user.id, action: actionParts.join(", ") || "일정 수정" },
   });
 
   return NextResponse.json({ ok: true, event: updated });

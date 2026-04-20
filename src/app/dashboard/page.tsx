@@ -11,8 +11,9 @@ type CalendarMember = { role: string; user: { id: string; slug: string; name: st
 type EventComment = { id: string; content: string; createdAt: string; author: { id: string; name: string } };
 type EventActivity = { id: string; action: string; createdAt: string; actor: { id: string; name: string } };
 type EventItem = {
-  id: string; title: string; startAt: string; calendarId: string;
-  createdById: string; createdBy?: { id: string; name: string };
+  id: string; title: string; startAt: string; endAt?: string | null;
+  allDay?: boolean; location?: string | null; description?: string | null;
+  calendarId: string; createdById: string; createdBy?: { id: string; name: string };
   externalGoogleEventId?: string | null;
   comments: EventComment[]; activities: EventActivity[];
 };
@@ -32,39 +33,86 @@ const CAL_COLORS = [
   { db: "bg-indigo-500/20 text-indigo-300",   pill: "bg-indigo-100 text-indigo-700",   dot: "bg-indigo-500",  label: "남색" },
   { db: "bg-pink-500/20 text-pink-300",       pill: "bg-pink-100 text-pink-700",       dot: "bg-pink-500",    label: "분홍" },
 ];
-function colOf(dbColor: string) {
-  return CAL_COLORS.find(c => c.db === dbColor) ?? CAL_COLORS[0];
-}
+function colOf(dbColor: string) { return CAL_COLORS.find(c => c.db === dbColor) ?? CAL_COLORS[0]; }
 
 /* ─── Date helpers ───────────────────────────────────────────────── */
 const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const MONTHS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
 
+function pad(n: number) { return String(n).padStart(2, "0"); }
+function todayDateStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function nowTimeStr() {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  d.setHours(d.getHours() + 1);
+  return `${pad(d.getHours())}:00`;
+}
 function buildGrid(year: number, month: number) {
   const first = new Date(year, month, 1).getDay();
   const last = new Date(year, month + 1, 0).getDate();
   const total = Math.ceil((first + last) / 7) * 7;
-  return Array.from({ length: total }, (_, i) => {
-    const d = i - first + 1;
-    return d >= 1 && d <= last ? d : null;
-  });
+  const arr = Array.from({ length: total }, (_, i) => { const d = i - first + 1; return d >= 1 && d <= last ? d : null; });
+  const rows: (number | null)[][] = [];
+  for (let i = 0; i < arr.length; i += 7) rows.push(arr.slice(i, i + 7));
+  return rows;
 }
 function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
-function pad(n: number) { return String(n).padStart(2, "0"); }
-function toInput(d: Date) {
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-function fmtDateTime(iso: string) {
+function fmtDate(iso: string) {
   const d = new Date(iso);
-  return `${d.getFullYear()}년 ${MONTHS[d.getMonth()]} ${d.getDate()}일 (${DAYS[d.getDay()]}) ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}년 ${MONTHS[d.getMonth()]} ${d.getDate()}일 (${DAYS[d.getDay()]})`;
 }
-function nextHour() {
-  const d = new Date();
-  d.setMinutes(0, 0, 0);
-  d.setHours(d.getHours() + 1);
-  return toInput(d);
+function fmtTime(iso: string) {
+  const d = new Date(iso);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function isoFromParts(date: string, time: string) { return `${date}T${time}:00`; }
+function dateFromISO(iso: string) { return iso.slice(0, 10); }
+function timeFromISO(iso: string) { return iso.slice(11, 16); }
+
+/* ─── Multi-day bar helpers ─────────────────────────────────────── */
+type MultiDayBar = { id: string; eventId: string; title: string; calColor: string; startCol: number; endCol: number; isContinued: boolean };
+
+function buildMultiDayBars(row: (number | null)[], year: number, month: number, events: FlatEvent[]): MultiDayBar[] {
+  const validDays = row.filter((d): d is number => d !== null);
+  if (!validDays.length) return [];
+  const rowStart = new Date(year, month, validDays[0]);
+  rowStart.setHours(0, 0, 0, 0);
+  const rowEnd = new Date(year, month, validDays[validDays.length - 1]);
+  rowEnd.setHours(23, 59, 59, 999);
+
+  const bars: MultiDayBar[] = [];
+  for (const e of events) {
+    const eStart = new Date(e.startAt);
+    const eEnd = e.endAt ? new Date(e.endAt) : null;
+    if (!eEnd) continue;
+    eStart.setHours(0, 0, 0, 0);
+    eEnd.setHours(23, 59, 59, 999);
+    if (!sameDay(eStart, eEnd) === false) continue; // single day – skip (same day)
+    if (eStart.getTime() === eEnd.getTime()) continue;
+    if (eStart > rowEnd || eEnd < rowStart) continue;
+
+    const clippedStart = eStart < rowStart ? rowStart : eStart;
+    const clippedEnd = eEnd > rowEnd ? rowEnd : eEnd;
+
+    let startCol = -1, endCol = -1;
+    row.forEach((day, ci) => {
+      if (day === null) return;
+      const cellDate = new Date(year, month, day);
+      if (sameDay(cellDate, clippedStart)) startCol = ci;
+      if (sameDay(cellDate, clippedEnd)) endCol = ci;
+    });
+    if (startCol === -1) startCol = row.findIndex(d => d !== null);
+    if (endCol === -1) endCol = row.map((d, i) => d !== null ? i : -1).filter(i => i !== -1).at(-1) ?? 6;
+    if (startCol === -1 || endCol === -1) continue;
+
+    bars.push({ id: `${e.id}-r${startCol}`, eventId: e.id, title: e.title, calColor: e.calendarColor, startCol, endCol, isContinued: eStart < rowStart });
+  }
+  return bars.slice(0, 3);
 }
 
 /* ─── Main Component ─────────────────────────────────────────────── */
@@ -72,51 +120,52 @@ export default function DashboardPage() {
   const { status } = useSession();
   const router = useRouter();
 
-  /* data */
   const [viewer, setViewer] = useState<AuthUser | null>(null);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [loading, setLoading] = useState(true);
-
-  /* view */
   const [view, setView] = useState<"month" | "list">("month");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-
-  /* selection */
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  /* new event modal */
+  /* ── new event form ── */
   const [showEventModal, setShowEventModal] = useState(false);
   const [evTitle, setEvTitle] = useState("");
-  const [evDate, setEvDate] = useState(nextHour());
+  const [evLocation, setEvLocation] = useState("");
+  const [evDescription, setEvDescription] = useState("");
+  const [evAllDay, setEvAllDay] = useState(false);
+  const [evStartDate, setEvStartDate] = useState(todayDateStr());
+  const [evStartTime, setEvStartTime] = useState(nowTimeStr());
+  const [evHasEnd, setEvHasEnd] = useState(false);
+  const [evEndDate, setEvEndDate] = useState(todayDateStr());
+  const [evEndTime, setEvEndTime] = useState(() => { const t = nowTimeStr().split(":"); return `${pad(parseInt(t[0]) + 1)}:00`; });
   const [evCalId, setEvCalId] = useState("");
-  const [evSaving, setEvSaving] = useState(false);
 
-  /* new calendar modal */
+  /* ── new calendar form ── */
   const [showCalModal, setShowCalModal] = useState(false);
   const [calName, setCalName] = useState("");
   const [calColor, setCalColor] = useState(CAL_COLORS[1].db);
-  const [calSaving, setCalSaving] = useState(false);
 
-  /* event detail */
+  /* ── event detail ── */
   const [editMode, setEditMode] = useState(false);
   const [editTitle, setEditTitle] = useState("");
-  const [editDate, setEditDate] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editStartTime, setEditStartTime] = useState("");
+  const [editEndDate, setEditEndDate] = useState("");
+  const [editEndTime, setEditEndTime] = useState("");
+  const [editAllDay, setEditAllDay] = useState(false);
+  const [editLocation, setEditLocation] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  /* menus */
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  /* auth redirect */
-  useEffect(() => {
-    if (status === "unauthenticated") router.replace("/login");
-  }, [status, router]);
+  useEffect(() => { if (status === "unauthenticated") router.replace("/login"); }, [status, router]);
 
-  /* load data */
+  /* ── load ── */
   const load = useCallback(async () => {
-    setLoading(true);
     try {
       const res = await fetch("/api/events");
       if (!res.ok) return;
@@ -130,11 +179,9 @@ export default function DashboardPage() {
     }
   }, [evCalId]);
 
-  useEffect(() => {
-    if (status === "authenticated") void load();
-  }, [status, load]);
+  useEffect(() => { if (status === "authenticated") void load(); }, [status, load]);
 
-  /* derived */
+  /* ── derived ── */
   const visibleEvents = useMemo<FlatEvent[]>(() =>
     calendars
       .filter(c => !hiddenIds.has(c.id))
@@ -142,56 +189,81 @@ export default function DashboardPage() {
       .sort((a, b) => a.startAt.localeCompare(b.startAt)),
     [calendars, hiddenIds]);
 
-  const selected = useMemo(() =>
-    selectedId ? visibleEvents.find(e => e.id === selectedId) ?? null : null,
-    [visibleEvents, selectedId]);
-
+  const selected = useMemo(() => selectedId ? visibleEvents.find(e => e.id === selectedId) ?? null : null, [visibleEvents, selectedId]);
   const selectedCal = selected ? calendars.find(c => c.id === selected.calendarId) ?? null : null;
-
   const canEdit: boolean = !!viewer && !!selected && (
     viewer.role === "OWNER" || selected.createdById === viewer.id ||
     (selectedCal?.members.some(m => m.user.id === viewer.id && (m.role === "OWNER" || m.role === "EDITOR")) ?? false)
   );
 
-  /* actions */
+  /* ── recent events for quick-add ── */
+  const recentEvents = useMemo(() => {
+    const mine = visibleEvents.filter(e => e.createdById === viewer?.id);
+    const seen = new Set<string>();
+    return mine.filter(e => { if (seen.has(e.title)) return false; seen.add(e.title); return true; }).slice(-5).reverse();
+  }, [visibleEvents, viewer]);
+
+  function resetEventForm() {
+    setEvTitle(""); setEvLocation(""); setEvDescription("");
+    setEvAllDay(false); setEvHasEnd(false);
+    setEvStartDate(todayDateStr()); setEvStartTime(nowTimeStr());
+    setEvEndDate(todayDateStr());
+    const h = parseInt(nowTimeStr().split(":")[0]) + 1;
+    setEvEndTime(`${pad(h < 24 ? h : 23)}:00`);
+  }
+
+  /* ── actions ── */
   async function createEvent() {
-    if (!evTitle.trim()) return;
+    const title = evTitle.trim();
     const calId = evCalId || calendars[0]?.id;
-    if (!calId) return;
-    setEvSaving(true);
-    await fetch("/api/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ calendarId: calId, title: evTitle.trim(), startAt: evDate }),
-    });
+    if (!title || !calId) return;
+
+    const startAt = evAllDay ? `${evStartDate}T00:00:00` : isoFromParts(evStartDate, evStartTime);
+    const endAt = evHasEnd ? (evAllDay ? `${evEndDate}T23:59:59` : isoFromParts(evEndDate, evEndTime)) : null;
+
+    // Optimistic: close modal and add temp event immediately
+    const tempId = `_tmp_${Date.now()}`;
+    const tempEvent: EventItem = {
+      id: tempId, title, startAt, endAt, allDay: evAllDay,
+      location: evLocation.trim() || null, description: evDescription.trim() || null,
+      calendarId: calId, createdById: viewer?.id ?? "", externalGoogleEventId: null,
+      comments: [], activities: [],
+    };
     setShowEventModal(false);
-    setEvTitle("");
-    setEvDate(nextHour());
-    await load();
-    setEvSaving(false);
+    resetEventForm();
+    setCalendars(prev => prev.map(c => c.id === calId ? { ...c, events: [...c.events, tempEvent] } : c));
+
+    try {
+      await fetch("/api/events", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ calendarId: calId, title, startAt, endAt, allDay: evAllDay, location: evLocation.trim() || undefined, description: evDescription.trim() || undefined }),
+      });
+    } catch {
+      setCalendars(prev => prev.map(c => ({ ...c, events: c.events.filter(e => e.id !== tempId) })));
+    }
+    void load();
   }
 
   async function createCalendar() {
     if (!calName.trim()) return;
-    setCalSaving(true);
-    await fetch("/api/calendars", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: calName.trim(), color: calColor }),
-    });
-    setShowCalModal(false);
-    setCalName("");
-    await load();
-    setCalSaving(false);
+    const name = calName.trim(); const color = calColor;
+    const tempId = `_tmp_cal_${Date.now()}`;
+    const tempCal: Calendar = { id: tempId, key: tempId, name, color, members: [{ role: "OWNER", user: { id: viewer?.id ?? "", slug: "", name: viewer?.name ?? "", role: "MEMBER" } }], events: [] };
+    setShowCalModal(false); setCalName("");
+    setCalendars(prev => [...prev, tempCal]);
+    setEvCalId(tempId);
+    await fetch("/api/calendars", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, color }) });
+    void load();
   }
 
   async function saveEdit() {
     if (!selected) return;
     setSubmitting(true);
+    const startAt = editAllDay ? `${editStartDate}T00:00:00` : isoFromParts(editStartDate, editStartTime);
+    const endAt = editEndDate ? (editAllDay ? `${editEndDate}T23:59:59` : isoFromParts(editEndDate, editEndTime)) : null;
     await fetch(`/api/events/${selected.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: editTitle.trim() || undefined, startAt: editDate || undefined }),
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: editTitle.trim() || undefined, startAt, endAt, allDay: editAllDay, location: editLocation.trim() || null, description: editDescription.trim() || null }),
     });
     setEditMode(false);
     await load();
@@ -200,38 +272,44 @@ export default function DashboardPage() {
 
   async function deleteEvent() {
     if (!selected || !confirm(`"${selected.title}" 일정을 삭제할까요?`)) return;
-    await fetch(`/api/events/${selected.id}`, { method: "DELETE" });
+    // Optimistic delete
+    setCalendars(prev => prev.map(c => ({ ...c, events: c.events.filter(e => e.id !== selected.id) })));
     setSelectedId(null);
-    await load();
+    fetch(`/api/events/${selected.id}`, { method: "DELETE" });
+    void load();
   }
 
   async function addComment() {
     if (!selected || !comment.trim()) return;
     setSubmitting(true);
-    await fetch(`/api/events/${selected.id}/comments`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: comment.trim() }),
-    });
+    await fetch(`/api/events/${selected.id}/comments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: comment.trim() }) });
     setComment("");
     await load();
     setSubmitting(false);
   }
 
   function openNewEvent(dateStr?: string) {
-    setEvDate(dateStr ?? nextHour());
-    setEvTitle("");
+    const date = dateStr ?? todayDateStr();
+    setEvStartDate(date); setEvEndDate(date); setEvTitle(""); setEvLocation(""); setEvDescription(""); setEvAllDay(false); setEvHasEnd(false);
     if (calendars[0] && !evCalId) setEvCalId(calendars[0].id);
     setShowEventModal(true);
   }
 
-  function openEvent(id: string) {
-    setSelectedId(id);
-    setEditMode(false);
-    setComment("");
+  function openEvent(id: string) { setSelectedId(id); setEditMode(false); setComment(""); }
+
+  function startEdit(e: FlatEvent) {
+    setEditMode(true);
+    setEditTitle(e.title);
+    setEditAllDay(e.allDay ?? false);
+    setEditStartDate(dateFromISO(e.startAt));
+    setEditStartTime(timeFromISO(e.startAt));
+    setEditEndDate(e.endAt ? dateFromISO(e.endAt) : "");
+    setEditEndTime(e.endAt ? timeFromISO(e.endAt) : "");
+    setEditLocation(e.location ?? "");
+    setEditDescription(e.description ?? "");
   }
 
-  /* loading / unauth */
+  /* ── render ── */
   if (status === "loading" || (status === "authenticated" && loading && calendars.length === 0)) {
     return (
       <div className="flex h-screen items-center justify-center bg-white">
@@ -251,41 +329,28 @@ export default function DashboardPage() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-white">
 
-      {/* ── HEADER ── */}
+      {/* HEADER */}
       <header className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-3 shadow-sm">
         <button onClick={() => setSidebarOpen(v => !v)}
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">
           <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-
         <Link href="/" className="mr-2 text-base font-extrabold text-indigo-600 tracking-tight">SyncNest</Link>
-
-        {/* month nav */}
         <div className="flex items-center gap-1">
           <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))}
             className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <span className="min-w-[96px] text-center text-sm font-semibold text-gray-800">
-            {year}년 {MONTHS[month]}
-          </span>
+          <span className="min-w-[96px] text-center text-sm font-semibold text-gray-800">{year}년 {MONTHS[month]}</span>
           <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))}
             className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
           </button>
           <button onClick={() => setCurrentDate(new Date())}
-            className="ml-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">
-            오늘
-          </button>
+            className="ml-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">오늘</button>
         </div>
-
-        {/* view toggle */}
         <div className="ml-auto flex items-center gap-1 rounded-lg border border-gray-200 p-0.5">
           {(["month", "list"] as const).map(v => (
             <button key={v} onClick={() => setView(v)}
@@ -294,17 +359,11 @@ export default function DashboardPage() {
             </button>
           ))}
         </div>
-
-        {/* create event */}
         <button onClick={() => openNewEvent()}
-          className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition shadow-sm">
-          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
+          className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 shadow-sm">
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
           일정 만들기
         </button>
-
-        {/* user menu */}
         <div className="relative">
           <button onClick={() => setShowUserMenu(v => !v)}
             className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700 hover:bg-indigo-200">
@@ -318,9 +377,7 @@ export default function DashboardPage() {
               </div>
               <button onClick={() => { setShowUserMenu(false); void signOut({ callbackUrl: "/" }); }}
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-500 hover:bg-red-50">
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
                 로그아웃
               </button>
             </div>
@@ -328,32 +385,23 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* ── BODY ── */}
+      {/* BODY */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* ── SIDEBAR ── */}
+        {/* SIDEBAR */}
         {sidebarOpen && (
           <aside className="flex w-56 flex-shrink-0 flex-col border-r border-gray-200 bg-white">
             <div className="flex-1 overflow-y-auto p-3">
-
-              {/* 새 일정 */}
               <button onClick={() => openNewEvent()}
                 className="mb-4 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-200 py-2.5 text-sm font-medium text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50 transition">
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                 새 일정
               </button>
-
-              {/* 캘린더 목록 */}
               <div className="mb-1 flex items-center justify-between px-1">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">내 캘린더</span>
               </div>
-
               {calendars.length === 0 ? (
-                <p className="mt-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-600">
-                  캘린더가 없습니다. 아래에서 만들어보세요.
-                </p>
+                <p className="mt-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-600">캘린더가 없습니다. 아래에서 만들어보세요.</p>
               ) : (
                 <div className="space-y-0.5">
                   {calendars.map(c => {
@@ -363,7 +411,7 @@ export default function DashboardPage() {
                       <button key={c.id}
                         onClick={() => setHiddenIds(prev => { const n = new Set(prev); if (n.has(c.id)) n.delete(c.id); else n.add(c.id); return n; })}
                         className={`group flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm transition ${hidden ? "opacity-40" : "hover:bg-gray-50"}`}>
-                        <span className={`h-3 w-3 flex-shrink-0 rounded-full transition ${hidden ? "bg-gray-300" : col.dot}`} />
+                        <span className={`h-3 w-3 flex-shrink-0 rounded-full ${hidden ? "bg-gray-300" : col.dot}`} />
                         <span className="flex-1 truncate text-gray-700">{c.name}</span>
                         <span className="text-[10px] text-gray-400">{c.events.length}</span>
                       </button>
@@ -371,48 +419,38 @@ export default function DashboardPage() {
                   })}
                 </div>
               )}
-
-              {/* 새 캘린더 추가 */}
               <button onClick={() => setShowCalModal(true)}
                 className="mt-3 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm text-gray-500 hover:bg-gray-50 hover:text-indigo-600 transition">
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                 새 캘린더 만들기
               </button>
             </div>
           </aside>
         )}
 
-        {/* ── MAIN ── */}
+        {/* MAIN */}
         <main className="flex flex-1 flex-col overflow-hidden">
           {view === "month" ? (
-            <MonthView
-              year={year} month={month} today={today}
-              events={visibleEvents}
-              selectedId={selectedId}
-              onDayClick={d => openNewEvent(d + "T10:00")}
-              onEventClick={openEvent}
-            />
+            <MonthView year={year} month={month} today={today} events={visibleEvents}
+              selectedId={selectedId} onDayClick={d => openNewEvent(d)} onEventClick={openEvent} />
           ) : (
-            <ListView
-              events={visibleEvents}
-              selectedId={selectedId}
-              onEventClick={openEvent}
-            />
+            <ListView events={visibleEvents} selectedId={selectedId} onEventClick={openEvent} />
           )}
         </main>
 
-        {/* ── EVENT DETAIL PANEL ── */}
+        {/* EVENT DETAIL PANEL */}
         {selected && (
           <EventPanel
             event={selected} calendar={selectedCal} viewer={viewer} canEdit={canEdit}
-            editMode={editMode} editTitle={editTitle} editDate={editDate}
+            editMode={editMode}
+            editTitle={editTitle} editAllDay={editAllDay}
+            editStartDate={editStartDate} editStartTime={editStartTime}
+            editEndDate={editEndDate} editEndTime={editEndTime}
+            editLocation={editLocation} editDescription={editDescription}
             comment={comment} submitting={submitting}
-            onEditStart={() => { setEditMode(true); setEditTitle(selected.title); setEditDate(toInput(new Date(selected.startAt))); }}
+            onEditStart={() => startEdit(selected)}
             onEditCancel={() => setEditMode(false)}
-            onEditTitleChange={setEditTitle}
-            onEditDateChange={setEditDate}
+            onEditChange={{ title: setEditTitle, allDay: setEditAllDay, startDate: setEditStartDate, startTime: setEditStartTime, endDate: setEditEndDate, endTime: setEditEndTime, location: setEditLocation, description: setEditDescription }}
             onSave={() => void saveEdit()}
             onCommentChange={setComment}
             onAddComment={() => void addComment()}
@@ -422,40 +460,83 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* ── NEW EVENT MODAL ── */}
+      {/* NEW EVENT MODAL */}
       {showEventModal && (
         <Modal onClose={() => setShowEventModal(false)}>
-          <h2 className="mb-4 text-lg font-bold text-gray-900">새 일정 만들기</h2>
-          <div className="space-y-3">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-500">일정 제목 *</label>
-              <input autoFocus value={evTitle}
-                onChange={e => setEvTitle(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && void createEvent()}
-                placeholder="어떤 일정인가요?"
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+          <h2 className="mb-5 text-lg font-bold text-gray-900">새 일정 만들기</h2>
+          <div className="space-y-4">
+
+            {/* Title */}
+            <input autoFocus value={evTitle} onChange={e => setEvTitle(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && void createEvent()}
+              placeholder="일정 제목 *"
+              className="w-full rounded-xl border border-gray-200 px-4 py-3 text-base font-medium outline-none placeholder:text-gray-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+
+            {/* Location */}
+            <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2.5 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-50">
+              <svg className="h-4 w-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              <input value={evLocation} onChange={e => setEvLocation(e.target.value)}
+                placeholder="장소 (선택)"
+                className="flex-1 text-sm outline-none placeholder:text-gray-300" />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-500">날짜 & 시간</label>
-              <input type="datetime-local" value={evDate} onChange={e => setEvDate(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+
+            {/* Date/Time section */}
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-3">
+              {/* All-day toggle */}
+              <div className="flex items-center gap-3">
+                <button onClick={() => setEvAllDay(v => !v)}
+                  className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors ${evAllDay ? "bg-indigo-600" : "bg-gray-300"}`}>
+                  <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${evAllDay ? "translate-x-4" : "translate-x-0"}`} />
+                </button>
+                <span className="text-sm font-medium text-gray-700">하루 종일</span>
+              </div>
+
+              {/* Start */}
+              <div>
+                <p className="mb-1.5 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">시작</p>
+                <div className="flex gap-2">
+                  <input type="date" value={evStartDate}
+                    onChange={e => { setEvStartDate(e.target.value); if (evEndDate < e.target.value) setEvEndDate(e.target.value); }}
+                    className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100" />
+                  {!evAllDay && (
+                    <input type="time" value={evStartTime} onChange={e => setEvStartTime(e.target.value)}
+                      className="w-28 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100" />
+                  )}
+                </div>
+              </div>
+
+              {/* End toggle + end date */}
+              <div>
+                <button onClick={() => setEvHasEnd(v => !v)}
+                  className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-indigo-500 hover:text-indigo-700">
+                  {evHasEnd ? "▾ 종료 시간" : "▸ 종료 시간 추가"}
+                </button>
+                {evHasEnd && (
+                  <div className="flex gap-2">
+                    <input type="date" value={evEndDate} min={evStartDate}
+                      onChange={e => setEvEndDate(e.target.value)}
+                      className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100" />
+                    {!evAllDay && (
+                      <input type="time" value={evEndTime} onChange={e => setEvEndTime(e.target.value)}
+                        className="w-28 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100" />
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* Calendar selector */}
             {calendars.length > 1 && (
               <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">캘린더</label>
-                <div className="space-y-1.5">
+                <p className="mb-2 text-xs font-semibold text-gray-400">캘린더 선택</p>
+                <div className="flex flex-wrap gap-1.5">
                   {calendars.map(c => {
                     const col = colOf(c.color);
                     return (
                       <button key={c.id} onClick={() => setEvCalId(c.id)}
-                        className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-sm transition ${evCalId === c.id ? "border-indigo-400 bg-indigo-50" : "border-gray-200 hover:border-gray-300"}`}>
-                        <span className={`h-3 w-3 rounded-full ${col.dot}`} />
-                        <span className="font-medium text-gray-800">{c.name}</span>
-                        {evCalId === c.id && (
-                          <svg className="ml-auto h-4 w-4 text-indigo-600" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
+                        className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${evCalId === c.id ? "border-indigo-400 bg-indigo-50 text-indigo-700" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
+                        <span className={`h-2 w-2 rounded-full ${col.dot}`} />
+                        {c.name}
                       </button>
                     );
                   })}
@@ -468,40 +549,54 @@ export default function DashboardPage() {
                 <span className="text-sm text-gray-600">{calendars[0].name}</span>
               </div>
             )}
-            {calendars.length === 0 && (
-              <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-700">
-                먼저 캘린더를 만들어 주세요. 사이드바의 "새 캘린더 만들기"를 눌러보세요.
-              </p>
+
+            {/* Description */}
+            <textarea value={evDescription} onChange={e => setEvDescription(e.target.value)}
+              placeholder="메모 (선택)"
+              rows={2}
+              className="w-full resize-none rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none placeholder:text-gray-300 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+
+            {/* Recent events */}
+            {recentEvents.length > 0 && (
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">최근 일정으로 빠르게 추가</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {recentEvents.map(e => (
+                    <button key={e.id}
+                      onClick={() => { setEvTitle(e.title); if (e.location) setEvLocation(e.location); if (e.description) setEvDescription(e.description); }}
+                      className="flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-600 transition">
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                      {e.title}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
+
           <div className="mt-5 flex justify-end gap-2">
             <button onClick={() => setShowEventModal(false)}
-              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
-              취소
-            </button>
+              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">취소</button>
             <button onClick={() => void createEvent()}
-              disabled={!evTitle.trim() || evSaving || calendars.length === 0}
+              disabled={!evTitle.trim() || calendars.length === 0}
               className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40 transition">
-              {evSaving ? "저장 중..." : "일정 만들기"}
+              일정 만들기
             </button>
           </div>
         </Modal>
       )}
 
-      {/* ── NEW CALENDAR MODAL ── */}
+      {/* NEW CALENDAR MODAL */}
       {showCalModal && (
         <Modal onClose={() => setShowCalModal(false)}>
           <h2 className="mb-4 text-lg font-bold text-gray-900">새 캘린더 만들기</h2>
           <div className="space-y-4">
+            <input autoFocus value={calName} onChange={e => setCalName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && void createCalendar()}
+              placeholder="캘린더 이름 (예: 벨로컴퍼니 업무, 알바 근무)"
+              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-500">캘린더 이름 *</label>
-              <input autoFocus value={calName} onChange={e => setCalName(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && void createCalendar()}
-                placeholder="예: 벨로컴퍼니 업무, 알바 근무, 친구 모임"
-                className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
-            </div>
-            <div>
-              <label className="mb-2 block text-xs font-medium text-gray-500">색상 선택</label>
+              <p className="mb-2 text-xs font-medium text-gray-500">색상 선택</p>
               <div className="flex flex-wrap gap-2.5">
                 {CAL_COLORS.map(c => (
                   <button key={c.db} onClick={() => setCalColor(c.db)}
@@ -515,13 +610,11 @@ export default function DashboardPage() {
           </div>
           <div className="mt-5 flex justify-end gap-2">
             <button onClick={() => setShowCalModal(false)}
-              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
-              취소
-            </button>
+              className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">취소</button>
             <button onClick={() => void createCalendar()}
-              disabled={!calName.trim() || calSaving}
+              disabled={!calName.trim()}
               className="rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40 transition">
-              {calSaving ? "만드는 중..." : "캘린더 만들기"}
+              캘린더 만들기
             </button>
           </div>
         </Modal>
@@ -532,17 +625,14 @@ export default function DashboardPage() {
   );
 }
 
-/* ─── Modal wrapper ──────────────────────────────────────────────── */
+/* ─── Modal ──────────────────────────────────────────────────────── */
 function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="relative">
-          <button onClick={onClose}
-            className="absolute -right-1 -top-1 rounded-lg p-1 text-gray-400 hover:bg-gray-100">
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+          <button onClick={onClose} className="absolute -right-1 -top-1 rounded-lg p-1 text-gray-400 hover:bg-gray-100">
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
           {children}
         </div>
@@ -556,14 +646,23 @@ function MonthView({ year, month, today, events, selectedId, onDayClick, onEvent
   year: number; month: number; today: Date; events: FlatEvent[];
   selectedId: string | null; onDayClick: (d: string) => void; onEventClick: (id: string) => void;
 }) {
-  const grid = buildGrid(year, month);
-  const rows: (number | null)[][] = [];
-  for (let i = 0; i < grid.length; i += 7) rows.push(grid.slice(i, i + 7));
+  const rows = buildGrid(year, month);
 
   function eventsOn(day: number) {
     return events.filter(e => {
       const d = new Date(e.startAt);
+      if (e.endAt) {
+        const start = new Date(year, month, day);
+        const end = new Date(year, month, day, 23, 59, 59);
+        return new Date(e.startAt) <= end && new Date(e.endAt) >= start;
+      }
       return d.getFullYear() === year && d.getMonth() === month && d.getDate() === day;
+    }).filter(e => {
+      // Single-day events only in cell (multi-day handled by bars)
+      if (!e.endAt) return true;
+      const eStart = new Date(e.startAt);
+      const eEnd = new Date(e.endAt);
+      return sameDay(eStart, eEnd);
     });
   }
 
@@ -571,54 +670,71 @@ function MonthView({ year, month, today, events, selectedId, onDayClick, onEvent
 
   return (
     <div className="flex flex-1 flex-col overflow-auto">
-      {/* day headers */}
       <div className="grid grid-cols-7 border-b border-gray-200 bg-white">
         {DAYS.map((d, i) => (
-          <div key={d} className={`py-2 text-center text-xs font-semibold ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-400"}`}>
-            {d}
-          </div>
+          <div key={d} className={`py-2 text-center text-xs font-semibold ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-400"}`}>{d}</div>
         ))}
       </div>
-      {/* rows */}
       <div className="flex-1">
-        {rows.map((row, ri) => (
-          <div key={ri} className="grid grid-cols-7" style={{ height: rowH }}>
-            {row.map((day, ci) => {
-              const isToday = day !== null && sameDay(new Date(year, month, day), today);
-              const dayEvs = day !== null ? eventsOn(day) : [];
-              const dateStr = day !== null ? `${year}-${pad(month+1)}-${pad(day)}` : "";
-              return (
-                <div key={ci} onClick={() => day !== null && onDayClick(dateStr)}
-                  className={`group cursor-pointer border-b border-r border-gray-100 p-1 transition hover:bg-indigo-50/20 ${isToday ? "bg-blue-50/30" : ""} ${ci === 0 ? "border-l border-gray-100" : ""}`}>
-                  {day !== null && (
-                    <>
-                      <div className="flex justify-center pt-0.5">
-                        <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-indigo-600 font-bold text-white" : ci === 0 ? "text-red-400" : ci === 6 ? "text-blue-400" : "text-gray-700 group-hover:text-indigo-600"}`}>
-                          {day}
-                        </span>
+        {rows.map((row, ri) => {
+          const multiDayBars = buildMultiDayBars(row, year, month, events);
+          return (
+            <div key={ri} style={{ height: rowH }} className="flex flex-col">
+              {/* Multi-day bars */}
+              {multiDayBars.length > 0 && (
+                <div className="relative grid grid-cols-7 px-0.5 py-0.5 flex-shrink-0">
+                  {multiDayBars.map(bar => {
+                    const col = colOf(bar.calColor);
+                    return (
+                      <div key={bar.id}
+                        style={{ gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}` }}
+                        onClick={() => onEventClick(bar.eventId)}
+                        className={`cursor-pointer truncate rounded px-1.5 py-0.5 text-[10px] font-medium mx-0.5 ${col.pill} hover:opacity-80`}>
+                        {!bar.isContinued && bar.title}
+                        {bar.isContinued && <span className="opacity-60">↩ {bar.title}</span>}
                       </div>
-                      <div className="mt-0.5 space-y-0.5">
-                        {dayEvs.slice(0, 3).map(e => {
-                          const col = colOf(e.calendarColor);
-                          return (
-                            <button key={e.id}
-                              onClick={ev => { ev.stopPropagation(); onEventClick(e.id); }}
-                              className={`w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium transition hover:opacity-80 ${col.pill} ${selectedId === e.id ? "ring-2 ring-indigo-400 ring-offset-1" : ""}`}>
-                              {e.title}
-                            </button>
-                          );
-                        })}
-                        {dayEvs.length > 3 && (
-                          <p className="pl-1.5 text-[10px] text-gray-400">+{dayEvs.length - 3}개 더</p>
-                        )}
-                      </div>
-                    </>
-                  )}
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
-        ))}
+              )}
+              {/* Day cells */}
+              <div className="grid grid-cols-7 flex-1">
+                {row.map((day, ci) => {
+                  const isToday = day !== null && sameDay(new Date(year, month, day), today);
+                  const dayEvs = day !== null ? eventsOn(day) : [];
+                  const dateStr = day !== null ? `${year}-${pad(month+1)}-${pad(day)}` : "";
+                  return (
+                    <div key={ci} onClick={() => day !== null && onDayClick(dateStr)}
+                      className={`group cursor-pointer border-b border-r border-gray-100 p-1 transition hover:bg-indigo-50/20 overflow-hidden ${isToday ? "bg-blue-50/30" : ""} ${ci === 0 ? "border-l border-gray-100" : ""}`}>
+                      {day !== null && (
+                        <>
+                          <div className="flex justify-center pt-0.5">
+                            <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${isToday ? "bg-indigo-600 text-white" : ci === 0 ? "text-red-400" : ci === 6 ? "text-blue-400" : "text-gray-700 group-hover:text-indigo-600"}`}>
+                              {day}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 space-y-0.5">
+                            {dayEvs.slice(0, 2).map(e => {
+                              const col = colOf(e.calendarColor);
+                              return (
+                                <button key={e.id}
+                                  onClick={ev => { ev.stopPropagation(); onEventClick(e.id); }}
+                                  className={`w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium transition hover:opacity-80 ${col.pill} ${selectedId === e.id ? "ring-2 ring-indigo-400 ring-offset-1" : ""}`}>
+                                  {e.allDay ? "◆ " : ""}{e.title}
+                                </button>
+                              );
+                            })}
+                            {dayEvs.length > 2 && <p className="pl-1.5 text-[10px] text-gray-400">+{dayEvs.length - 2}개</p>}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -645,7 +761,7 @@ function ListView({ events, selectedId, onEventClick }: {
         <div className="text-center text-gray-400">
           <p className="text-5xl">📅</p>
           <p className="mt-3 text-sm">일정이 없습니다.</p>
-          <p className="mt-1 text-xs">위의 "일정 만들기" 버튼을 눌러 추가해보세요.</p>
+          <p className="mt-1 text-xs">"일정 만들기" 버튼을 눌러 추가해보세요.</p>
         </div>
       </div>
     );
@@ -673,17 +789,16 @@ function ListView({ events, selectedId, onEventClick }: {
                       <span className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${col.dot}`} />
                       <div className="flex-1 min-w-0">
                         <p className="truncate font-semibold text-gray-900">{e.title}</p>
-                        <p className="mt-0.5 text-xs text-gray-400">
-                          {new Date(e.startAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false })}
-                          {" · "}
+                        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-gray-400">
+                          {e.allDay ? <span>하루 종일</span> : <span>{fmtTime(e.startAt)}{e.endAt ? ` ~ ${fmtTime(e.endAt)}` : ""}</span>}
+                          {e.endAt && !sameDay(new Date(e.startAt), new Date(e.endAt)) && <span className="text-indigo-500">~{fmtDate(e.endAt)}</span>}
                           <span className={`rounded px-1.5 py-0.5 ${col.pill}`}>{e.calendarName}</span>
+                          {e.location && <span className="truncate max-w-[120px]">📍 {e.location}</span>}
                         </p>
                       </div>
                       {e.comments.length > 0 && (
                         <span className="flex items-center gap-1 text-xs text-gray-400">
-                          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                          </svg>
+                          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
                           {e.comments.length}
                         </span>
                       )}
@@ -700,74 +815,88 @@ function ListView({ events, selectedId, onEventClick }: {
 }
 
 /* ─── Event Detail Panel ─────────────────────────────────────────── */
+type OnEditChange = {
+  title: (v: string) => void; allDay: (v: boolean) => void;
+  startDate: (v: string) => void; startTime: (v: string) => void;
+  endDate: (v: string) => void; endTime: (v: string) => void;
+  location: (v: string) => void; description: (v: string) => void;
+};
 function EventPanel({
   event, calendar, viewer, canEdit,
-  editMode, editTitle, editDate, comment, submitting,
-  onEditStart, onEditCancel, onEditTitleChange, onEditDateChange,
+  editMode, editTitle, editAllDay, editStartDate, editStartTime, editEndDate, editEndTime, editLocation, editDescription,
+  comment, submitting, onEditStart, onEditCancel, onEditChange,
   onSave, onCommentChange, onAddComment, onDelete, onClose,
 }: {
   event: FlatEvent; calendar: Calendar | null; viewer: AuthUser | null; canEdit: boolean;
-  editMode: boolean; editTitle: string; editDate: string; comment: string; submitting: boolean;
-  onEditStart: () => void; onEditCancel: () => void;
-  onEditTitleChange: (v: string) => void; onEditDateChange: (v: string) => void;
+  editMode: boolean; editTitle: string; editAllDay: boolean;
+  editStartDate: string; editStartTime: string; editEndDate: string; editEndTime: string;
+  editLocation: string; editDescription: string;
+  comment: string; submitting: boolean;
+  onEditStart: () => void; onEditCancel: () => void; onEditChange: OnEditChange;
   onSave: () => void; onCommentChange: (v: string) => void;
   onAddComment: () => void; onDelete: () => void; onClose: () => void;
 }) {
   const col = colOf(event.calendarColor);
+  const isMultiDay = event.endAt && !sameDay(new Date(event.startAt), new Date(event.endAt));
 
   return (
     <aside className="flex w-80 flex-shrink-0 flex-col border-l border-gray-200 bg-white shadow-lg overflow-hidden">
-      {/* panel header */}
       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
         <h2 className="text-sm font-semibold text-gray-600">일정 상세</h2>
         <div className="flex items-center gap-1">
           {canEdit && !editMode && (
-            <button onClick={onEditStart} title="수정"
-              className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
+            <button onClick={onEditStart} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
             </button>
           )}
-          {canEdit && (
-            <button onClick={onDelete} title="삭제"
-              className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500">
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
+          {canEdit && !editMode && (
+            <button onClick={onDelete} className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
             </button>
           )}
-          <button onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* event info */}
         <div className="p-4">
           {editMode ? (
             <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">제목</label>
-                <input autoFocus value={editTitle} onChange={e => onEditTitleChange(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+              <input autoFocus value={editTitle} onChange={e => onEditChange.title(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+              <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <button onClick={() => onEditChange.allDay(!editAllDay)}
+                    className={`relative inline-flex h-4 w-8 rounded-full border-2 border-transparent transition-colors ${editAllDay ? "bg-indigo-600" : "bg-gray-300"}`}>
+                    <span className={`inline-block h-3 w-3 rounded-full bg-white shadow transition-transform ${editAllDay ? "translate-x-4" : "translate-x-0"}`} />
+                  </button>
+                  <span className="text-xs text-gray-600">하루 종일</span>
+                </div>
+                <div className="flex gap-2">
+                  <input type="date" value={editStartDate} onChange={e => onEditChange.startDate(e.target.value)}
+                    className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-indigo-400" />
+                  {!editAllDay && <input type="time" value={editStartTime} onChange={e => onEditChange.startTime(e.target.value)}
+                    className="w-24 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-indigo-400" />}
+                </div>
+                <div className="flex gap-2">
+                  <input type="date" value={editEndDate} onChange={e => onEditChange.endDate(e.target.value)} placeholder="종료 날짜 (선택)"
+                    className="flex-1 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-indigo-400" />
+                  {!editAllDay && <input type="time" value={editEndTime} onChange={e => onEditChange.endTime(e.target.value)}
+                    className="w-24 rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs outline-none focus:border-indigo-400" />}
+                </div>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-500">날짜 & 시간</label>
-                <input type="datetime-local" value={editDate} onChange={e => onEditDateChange(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+              <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2">
+                <svg className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                <input value={editLocation} onChange={e => onEditChange.location(e.target.value)} placeholder="장소"
+                  className="flex-1 text-xs outline-none placeholder:text-gray-300" />
               </div>
+              <textarea value={editDescription} onChange={e => onEditChange.description(e.target.value)} placeholder="메모" rows={2}
+                className="w-full resize-none rounded-xl border border-gray-200 px-3 py-2 text-xs outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 placeholder:text-gray-300" />
               <div className="flex gap-2">
-                <button onClick={onEditCancel}
-                  className="flex-1 rounded-xl border border-gray-200 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
-                  취소
-                </button>
-                <button onClick={onSave} disabled={!editTitle.trim() || submitting}
-                  className="flex-1 rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40">
+                <button onClick={onEditCancel} className="flex-1 rounded-xl border border-gray-200 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">취소</button>
+                <button onClick={onSave} disabled={!editTitle.trim() || submitting} className="flex-1 rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40">
                   {submitting ? "저장 중..." : "저장"}
                 </button>
               </div>
@@ -775,34 +904,61 @@ function EventPanel({
           ) : (
             <>
               <h3 className="text-lg font-bold leading-snug text-gray-900">{event.title}</h3>
-              <p className="mt-1.5 text-xs text-gray-500">{fmtDateTime(event.startAt)}</p>
+
+              {/* Date/time */}
+              <div className="mt-2 space-y-1">
+                {event.allDay ? (
+                  <p className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    {fmtDate(event.startAt)}{isMultiDay && event.endAt ? ` ~ ${fmtDate(event.endAt)}` : ""} · 하루 종일
+                  </p>
+                ) : (
+                  <p className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    {fmtDate(event.startAt)} {fmtTime(event.startAt)}
+                    {event.endAt && <> ~ {isMultiDay ? `${fmtDate(event.endAt)} ` : ""}{fmtTime(event.endAt)}</>}
+                  </p>
+                )}
+                {event.location && (
+                  <p className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    {event.location}
+                  </p>
+                )}
+              </div>
+
+              {/* Description */}
+              {event.description && (
+                <div className="mt-3 rounded-xl bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500 whitespace-pre-wrap">{event.description}</p>
+                </div>
+              )}
+
               <div className="mt-3 flex items-center gap-2">
                 <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
                 <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${col.pill}`}>{event.calendarName}</span>
               </div>
+
               {calendar && calendar.members.length > 1 && (
                 <div className="mt-3">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">공유 멤버</p>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">
                     {calendar.members.map(m => (
                       <span key={m.user.id} className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] text-gray-600">
-                        {m.user.name}
-                        {m.role === "OWNER" && <span className="ml-1 text-indigo-500">★</span>}
+                        {m.user.name}{m.role === "OWNER" && <span className="ml-1 text-indigo-500">★</span>}
                       </span>
                     ))}
                   </div>
                 </div>
               )}
-              <p className="mt-2 text-[11px] text-gray-400">
-                작성: {event.createdBy?.name ?? "알 수 없음"}
-              </p>
+              <p className="mt-2 text-[11px] text-gray-400">작성: {event.createdBy?.name ?? "알 수 없음"}</p>
             </>
           )}
         </div>
 
-        {/* comments */}
+        {/* Comments */}
         <div className="border-t border-gray-100 p-4">
-          <p className="mb-3 text-xs font-semibold text-gray-500">댓글 {event.comments.length > 0 ? `(${event.comments.length})` : ""}</p>
+          <p className="mb-3 text-xs font-semibold text-gray-500">댓글{event.comments.length > 0 ? ` (${event.comments.length})` : ""}</p>
           {event.comments.length === 0 ? (
             <p className="text-xs text-gray-400">첫 댓글을 남겨보세요.</p>
           ) : (
@@ -811,9 +967,7 @@ function EventPanel({
                 <div key={c.id} className="rounded-xl bg-gray-50 p-3">
                   <p className="text-[11px] font-semibold text-gray-500">
                     {c.author.name}
-                    <span className="ml-1.5 font-normal text-gray-400">
-                      {new Date(c.createdAt).toLocaleString("ko-KR", { hour12: false, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                    </span>
+                    <span className="ml-1.5 font-normal text-gray-400">{new Date(c.createdAt).toLocaleString("ko-KR", { hour12: false, month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
                   </p>
                   <p className="mt-1 text-sm text-gray-700">{c.content}</p>
                 </div>
@@ -826,15 +980,13 @@ function EventPanel({
               placeholder="댓글 입력..."
               className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
             <button onClick={onAddComment} disabled={!comment.trim() || submitting}
-              className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40 transition">
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
+              className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
             </button>
           </div>
         </div>
 
-        {/* activity log */}
+        {/* Activity log */}
         {event.activities.length > 0 && (
           <div className="border-t border-gray-100 p-4">
             <p className="mb-3 text-xs font-semibold text-gray-500">활동 로그</p>
@@ -845,9 +997,7 @@ function EventPanel({
                   <div>
                     <span className="text-[11px] font-semibold text-gray-600">{a.actor.name}</span>
                     <span className="text-[11px] text-gray-400"> · {a.action}</span>
-                    <p className="text-[10px] text-gray-300">
-                      {new Date(a.createdAt).toLocaleString("ko-KR", { hour12: false })}
-                    </p>
+                    <p className="text-[10px] text-gray-300">{new Date(a.createdAt).toLocaleString("ko-KR", { hour12: false })}</p>
                   </div>
                 </div>
               ))}
