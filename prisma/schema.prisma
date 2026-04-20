@@ -1,0 +1,133 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String           @id @default(cuid())
+  slug          String           @unique @default(cuid())
+  name          String?
+  email         String?          @unique
+  emailVerified DateTime?
+  image         String?
+  role          String           @default("MEMBER")
+  createdAt     DateTime         @default(now())
+  calendars     CalendarMember[]
+  events        Event[]          @relation("EventCreator")
+  comments      EventComment[]
+  logs          EventActivity[]
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Calendar {
+  id        String           @id @default(cuid())
+  key       String           @unique
+  name      String
+  color     String
+  createdAt DateTime         @default(now())
+  members   CalendarMember[]
+  events    Event[]
+}
+
+model CalendarMember {
+  id         String       @id @default(cuid())
+  calendarId String
+  userId     String
+  role       String       @default("EDITOR")
+  joinedAt   DateTime     @default(now())
+  calendar   Calendar     @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, userId])
+  @@index([userId])
+}
+
+model Event {
+  id          String          @id @default(cuid())
+  calendarId  String
+  title       String
+  startAt     DateTime
+  createdById String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  calendar    Calendar        @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  createdBy   User            @relation("EventCreator", fields: [createdById], references: [id])
+  comments    EventComment[]
+  activities  EventActivity[]
+  externalGoogleEventId String?
+
+  @@index([calendarId, startAt])
+  @@index([createdById])
+}
+
+model EventComment {
+  id        String   @id @default(cuid())
+  eventId   String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id])
+
+  @@index([eventId, createdAt])
+}
+
+model EventActivity {
+  id        String   @id @default(cuid())
+  eventId   String
+  actorId   String
+  action    String
+  createdAt DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  actor     User     @relation(fields: [actorId], references: [id])
+
+  @@index([eventId, createdAt])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
