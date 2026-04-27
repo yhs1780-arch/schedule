@@ -51,6 +51,16 @@ export default function MultiSharePage({ params }: { params: Promise<{ token: st
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
   }, [calendars, selectedCals]);
 
+  const grouped = useMemo(() => {
+    const m = new Map<string, typeof allEvents>();
+    for (const e of allEvents) {
+      const d = e.startAt.slice(0, 10);
+      if (!m.has(d)) m.set(d, []);
+      m.get(d)!.push(e);
+    }
+    return Array.from(m.entries()).sort();
+  }, [allEvents]);
+
   const selected = allEvents.find(e => e.id === selectedId);
 
   if (loading) return (
@@ -66,17 +76,6 @@ export default function MultiSharePage({ params }: { params: Promise<{ token: st
       <Link href="/" className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white">홈으로</Link>
     </div>
   );
-
-  // 날짜별 그룹
-  const grouped = useMemo(() => {
-    const m = new Map<string, typeof allEvents>();
-    for (const e of allEvents) {
-      const d = e.startAt.slice(0, 10);
-      if (!m.has(d)) m.set(d, []);
-      m.get(d)!.push(e);
-    }
-    return Array.from(m.entries()).sort();
-  }, [allEvents]);
 
   return (
     <div className="min-h-screen bg-gray-50">
