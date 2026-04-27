@@ -170,17 +170,18 @@ function TourOverlay({ step, stepIdx, total, onNext, onSkip }: { step: TourStepD
   const popTop = spaceBelow > 210 ? rect.bottom + 14 : rect.top - 200;
   return (
     <>
+      {/* 어두운 배경 — pointer-events:none 이므로 클릭 통과 */}
       <svg className="fixed inset-0 z-[8999] pointer-events-none" width={winSize.w} height={winSize.h} style={{width:"100dvw",height:"100dvh"}}>
         <path d={svgPath} fill="rgba(0,0,0,0.55)" fillRule="evenodd"/>
       </svg>
-      <div className="fixed inset-0 z-[9000]" style={{pointerEvents:"all"}}>
-        <div style={{position:"absolute",top:0,left:0,right:0,height:Math.max(0,by)}} onClick={e=>e.stopPropagation()}/>
-        <div style={{position:"absolute",top:by+bh,left:0,right:0,bottom:0}} onClick={e=>e.stopPropagation()}/>
-        <div style={{position:"absolute",top:by,left:0,width:Math.max(0,bx),height:bh}} onClick={e=>e.stopPropagation()}/>
-        <div style={{position:"absolute",top:by,left:bx+bw,right:0,height:bh}} onClick={e=>e.stopPropagation()}/>
-        <div style={{position:"absolute",top:by,left:bx,width:bw,height:bh,pointerEvents:"none"}}/>
-      </div>
-      <div className="fixed z-[9001] pointer-events-none animate-pulse" style={{top:by,left:bx,width:bw,height:bh,borderRadius:12,boxShadow:"0 0 0 3px #6366f1, 0 0 0 6px rgba(99,102,241,0.25)"}}/>
+      {/* 클릭 차단: spotlight 구멍을 제외한 4개 영역만 막음 */}
+      <div style={{position:"fixed",top:0,left:0,right:0,height:Math.max(0,by),zIndex:9000,pointerEvents:"all"}} onClick={e=>e.stopPropagation()}/>
+      <div style={{position:"fixed",top:by+bh,left:0,right:0,bottom:0,zIndex:9000,pointerEvents:"all"}} onClick={e=>e.stopPropagation()}/>
+      <div style={{position:"fixed",top:by,left:0,width:Math.max(0,bx),height:bh,zIndex:9000,pointerEvents:"all"}} onClick={e=>e.stopPropagation()}/>
+      <div style={{position:"fixed",top:by,left:bx+bw,right:0,height:bh,zIndex:9000,pointerEvents:"all"}} onClick={e=>e.stopPropagation()}/>
+      {/* spotlight 테두리 효과 */}
+      <div className="fixed pointer-events-none animate-pulse" style={{top:by,left:bx,width:bw,height:bh,borderRadius:12,boxShadow:"0 0 0 3px #6366f1, 0 0 0 6px rgba(99,102,241,0.25)",zIndex:9001}}/>
+      {/* 가이드 팝업 */}
       <div className="fixed z-[9002] w-[280px] rounded-2xl bg-white shadow-2xl border border-gray-100 p-4" style={{ top: Math.max(8, popTop), left: popLeft }}>
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex gap-1">{Array.from({length:total}).map((_,i)=>(<div key={i} className={`h-1.5 rounded-full transition-all ${i===stepIdx?"w-6 bg-indigo-500":i<stepIdx?"w-4 bg-indigo-200":"w-4 bg-gray-200"}`}/>))}</div>
@@ -259,7 +260,7 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
     setGuestName(saved);
     void (async()=>{
       try{
-        const res=await fetch(`/api/share/${token}`);
+        const res=await fetch(`/api/share/${token}`, { cache: "no-store" });
         if(!res.ok){const d=(await res.json()) as {error?:string};setError(d.error??"링크를 찾을 수 없습니다.");return;}
         const data=(await res.json()) as {calendar:CalInfo;events:EventItem[]};
         setCal(data.calendar);setEvents(data.events);

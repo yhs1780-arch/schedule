@@ -197,19 +197,11 @@ function TourOverlay({ step, stepIdx, total, onNext, onSkip }: { step: TourStepD
       <svg className="fixed inset-0 z-[8999] pointer-events-none" width={winSize.w} height={winSize.h} style={{width:"100dvw",height:"100dvh"}}>
         <path d={svgPath} fill="rgba(0,0,0,0.55)" fillRule="evenodd"/>
       </svg>
-      {/* 구멍 밖 클릭을 물리적으로 차단하는 투명 4개 직사각형 */}
-      <div className="fixed inset-0 z-[9000]" style={{pointerEvents:"all"}}>
-        {/* 위 */}
-        <div style={{position:"absolute",top:0,left:0,right:0,height:Math.max(0,by)}} onClick={e=>e.stopPropagation()}/>
-        {/* 아래 */}
-        <div style={{position:"absolute",top:by+bh,left:0,right:0,bottom:0}} onClick={e=>e.stopPropagation()}/>
-        {/* 왼쪽 */}
-        <div style={{position:"absolute",top:by,left:0,width:Math.max(0,bx),height:bh}} onClick={e=>e.stopPropagation()}/>
-        {/* 오른쪽 */}
-        <div style={{position:"absolute",top:by,left:bx+bw,right:0,height:bh}} onClick={e=>e.stopPropagation()}/>
-        {/* 구멍 영역은 클릭 허용 (pointer-events:none) */}
-        <div style={{position:"absolute",top:by,left:bx,width:bw,height:bh,pointerEvents:"none"}}/>
-      </div>
+      {/* 구멍 밖 클릭 차단 — spotlight 영역은 포함하지 않아 클릭 통과됨 */}
+      <div style={{position:"fixed",top:0,left:0,right:0,height:Math.max(0,by),zIndex:9000,pointerEvents:"all"}} onClick={e=>e.stopPropagation()}/>
+      <div style={{position:"fixed",top:by+bh,left:0,right:0,bottom:0,zIndex:9000,pointerEvents:"all"}} onClick={e=>e.stopPropagation()}/>
+      <div style={{position:"fixed",top:by,left:0,width:Math.max(0,bx),height:bh,zIndex:9000,pointerEvents:"all"}} onClick={e=>e.stopPropagation()}/>
+      <div style={{position:"fixed",top:by,left:bx+bw,right:0,height:bh,zIndex:9000,pointerEvents:"all"}} onClick={e=>e.stopPropagation()}/>
       {/* 하이라이트 테두리 */}
       <div className="fixed z-[9001] pointer-events-none animate-pulse" style={{
         top:by,left:bx,width:bw,height:bh,borderRadius:12,
@@ -385,6 +377,13 @@ export default function DashboardPage() {
   const [calName, setCalName] = useState(""); const [calColor, setCalColor] = useState(CAL_COLORS[1].db);
   /* ── edit calendar ── */
   const [editingCal, setEditingCal] = useState<Calendar|null>(null);
+  /* 다중 캘린더 공유 */
+  const [calMultiSelect, setCalMultiSelect] = useState(false);
+  const [calMultiSelected, setCalMultiSelected] = useState<Set<string>>(new Set());
+  const [multiShareLink, setMultiShareLink] = useState<{token:string;role:string}|null>(null);
+  const [multiShareRole, setMultiShareRole] = useState<"VIEWER"|"EDITOR">("VIEWER");
+  const [multiShareLoading, setMultiShareLoading] = useState(false);
+  const [showMultiShareModal, setShowMultiShareModal] = useState(false);
   const [editCalName, setEditCalName] = useState(""); const [editCalColor, setEditCalColor] = useState("");
   const [confirmDeleteCal, setConfirmDeleteCal] = useState(false);
   /* ── drag-and-drop ── */
@@ -1063,7 +1062,7 @@ export default function DashboardPage() {
                     <div className="p-6 text-center text-xs text-gray-400">새 알림이 없습니다.</div>
                   ):(
                     <div className="divide-y divide-gray-50">
-                      {syncNotifs.map(n=>{
+                      {syncNotifs.slice(0,5).map(n=>{
                         const snap = n.snapshot ? (() => { try { return JSON.parse(n.snapshot!) as {_deleted?:boolean}; } catch { return null; } })() : null;
                         return(
                           <div key={n.id} className={`px-4 py-3 ${!n.isRead?"bg-indigo-50/40":""}`}>
@@ -1085,6 +1084,12 @@ export default function DashboardPage() {
                       })}
                     </div>
                   )}
+                  <div className="border-t border-gray-100 px-4 py-2.5">
+                    <Link href="/notifications" onClick={()=>setShowNotifPanel(false)}
+                      className="flex items-center justify-center gap-1.5 text-xs font-semibold text-indigo-500 hover:text-indigo-700">
+                      전체 알림 보기 →
+                    </Link>
+                  </div>
                 </div>
               </>
             )}
@@ -1155,35 +1160,67 @@ export default function DashboardPage() {
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
               새 일정 만들기
             </button>
-            <div className="mb-1 px-1"><span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">내 캘린더</span></div>
+            {/* 캘린더 헤더 + 다중공유 토글 */}
+            <div className="mb-1 flex items-center justify-between px-1">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">내 캘린더</span>
+              <button onClick={()=>{setCalMultiSelect(v=>!v);setCalMultiSelected(new Set());setMultiShareLink(null);}}
+                title="여러 캘린더 동시 공유"
+                className={`rounded-lg px-2 py-0.5 text-[10px] font-semibold transition ${calMultiSelect?"bg-indigo-600 text-white":"border border-gray-200 text-gray-400 hover:border-indigo-300 hover:text-indigo-500"}`}>
+                {calMultiSelect?"✕ 취소":"🔗 동시공유"}
+              </button>
+            </div>
+            {/* 다중 공유 선택 모드 안내 */}
+            {calMultiSelect&&(
+              <div className="mb-2 rounded-xl bg-indigo-50 border border-indigo-200 px-3 py-2">
+                <p className="text-[11px] text-indigo-600 font-medium">캘린더를 2개 이상 선택하고 공유 링크를 만드세요</p>
+                {calMultiSelected.size>=2&&(
+                  <button onClick={()=>setShowMultiShareModal(true)}
+                    className="mt-1.5 w-full rounded-lg bg-indigo-600 py-1.5 text-[11px] font-bold text-white hover:bg-indigo-700 transition">
+                    {calMultiSelected.size}개 캘린더 공유 링크 만들기 →
+                  </button>
+                )}
+              </div>
+            )}
             {calendars.length===0?(
               <p id="tour-calendar-list" className="mt-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-600">아직 캘린더가 없습니다.<br/>아래에서 만들어보세요!</p>
             ):(
               <div id="tour-calendar-list" className="space-y-0.5">
                 {calendars.map((c,ci)=>{
                   const col=colOf(c.color),hidden=hiddenIds.has(c.id),isOwner=c.members.some(m=>m.user.id===viewer?.id&&m.role==="OWNER");
+                  const multiChecked=calMultiSelected.has(c.id);
                   return(
-                    <div key={c.id} id={ci===0?"tour-invite-hint":undefined} className={`group flex items-center gap-1 rounded-xl px-2 py-2.5 transition ${hidden?"opacity-40":"hover:bg-gray-50"}`}>
-                      <button onClick={()=>setHiddenIds(p=>{const n=new Set(p);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;})}
+                    <div key={c.id} id={ci===0?"tour-invite-hint":undefined} className={`group flex items-center gap-1 rounded-xl px-2 py-2.5 transition ${hidden&&!calMultiSelect?"opacity-40":"hover:bg-gray-50"} ${calMultiSelect&&multiChecked?"bg-indigo-50":""}`}>
+                      {/* 다중선택 체크박스 */}
+                      {calMultiSelect?(
+                        <button onClick={()=>setCalMultiSelected(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;})}
+                          className={`flex-shrink-0 h-4 w-4 rounded border-2 flex items-center justify-center transition ${multiChecked?"border-indigo-500 bg-indigo-500":"border-gray-300"}`}>
+                          {multiChecked&&<svg className="h-2.5 w-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
+                        </button>
+                      ):(
+                        <button onClick={()=>setHiddenIds(p=>{const n=new Set(p);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;})}
+                          className="flex-shrink-0 cursor-pointer">
+                          <span className={`block h-3 w-3 rounded-full ${hidden?"bg-gray-300":col.dot}`}/>
+                        </button>
+                      )}
+                      <button onClick={()=>{if(!calMultiSelect){setHiddenIds(p=>{const n=new Set(p);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;});}else{setCalMultiSelected(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;});}}}
                         className="flex flex-1 items-center gap-2.5 min-w-0">
-                        <span className={`h-3 w-3 flex-shrink-0 rounded-full ${hidden?"bg-gray-300":col.dot}`}/>
                         <span className="flex-1 truncate text-sm font-medium text-gray-700">{c.name}</span>
                         <span className="text-[10px] text-gray-400">{c.events.length}</span>
                       </button>
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 lg:opacity-100 transition">
-                        {/* 수정 버튼 */}
-                        <button onClick={()=>openEditCal(c)} title="캘린더 수정"
-                          className="flex-shrink-0 rounded-lg p-1.5 text-gray-300 hover:bg-amber-50 hover:text-amber-500 transition">
-                          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-                        </button>
-                        {/* 멤버 초대 버튼 */}
-                        {isOwner&&(
-                          <button onClick={()=>{setShareCalId(c.id);setInviteEmail("");setInviteMsg(null);}} title="멤버 관리"
-                            className="flex-shrink-0 rounded-lg p-1.5 text-gray-300 hover:bg-indigo-50 hover:text-indigo-500 transition">
-                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                      {!calMultiSelect&&(
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 lg:opacity-100 transition">
+                          <button onClick={()=>openEditCal(c)} title="캘린더 수정"
+                            className="flex-shrink-0 rounded-lg p-1.5 text-gray-300 hover:bg-amber-50 hover:text-amber-500 transition">
+                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                           </button>
-                        )}
-                      </div>
+                          {isOwner&&(
+                            <button onClick={()=>{setShareCalId(c.id);setInviteEmail("");setInviteMsg(null);setShareLink(null);void fetch(`/api/calendars/${c.id}/share-link`).then(r=>r.json()).then((d:{token?:string;shareRole?:string})=>{if(d.token)setShareLink({token:d.token,role:d.shareRole??"VIEWER"});});}} title="멤버 관리"
+                              className="flex-shrink-0 rounded-lg p-1.5 text-gray-300 hover:bg-indigo-50 hover:text-indigo-500 transition">
+                              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1775,6 +1812,60 @@ export default function DashboardPage() {
         </Modal>
       )}
 
+      {/* ── MULTI-SHARE MODAL ── */}
+      {showMultiShareModal&&(
+        <Modal onClose={()=>{setShowMultiShareModal(false);setMultiShareLink(null);}}>
+          <h2 className="mb-3 text-lg font-bold text-gray-900">🔗 여러 캘린더 동시 공유</h2>
+          <div className="mb-3 space-y-1">
+            <p className="text-xs font-semibold text-gray-500">선택된 캘린더 ({calMultiSelected.size}개)</p>
+            {calendars.filter(c=>calMultiSelected.has(c.id)).map(c=>(
+              <div key={c.id} className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${colOf(c.color).dot}`}/>
+                <span className="text-sm font-medium text-gray-700">{c.name}</span>
+                <span className="text-[10px] text-gray-400">{c.events.length}개 일정</span>
+              </div>
+            ))}
+          </div>
+          <div className="mb-3 flex gap-2 items-center">
+            <span className="text-xs font-semibold text-gray-500 flex-shrink-0">공유 권한:</span>
+            {(["VIEWER","EDITOR"] as const).map(r=>(
+              <button key={r} onClick={()=>setMultiShareRole(r)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${multiShareRole===r?"bg-indigo-600 text-white":"border border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
+                {r==="EDITOR"?"편집 가능":"보기 전용"}
+              </button>
+            ))}
+          </div>
+          {multiShareLink?(
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 space-y-2">
+              <p className="text-[11px] font-bold text-indigo-600">✅ 공유 링크 생성됨</p>
+              <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-white p-2">
+                <span className="flex-1 truncate text-xs text-gray-600">{`${typeof window!=="undefined"?window.location.origin:""}/multi-share/${multiShareLink.token}`}</span>
+                <button onClick={()=>void navigator.clipboard.writeText(`${window.location.origin}/multi-share/${multiShareLink.token}`).then(()=>alert("복사됐어요!"))}
+                  className="flex-shrink-0 rounded-md bg-indigo-100 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-200">복사</button>
+              </div>
+              <button onClick={()=>{
+                const url=`${window.location.origin}/multi-share/${multiShareLink.token}`;
+                if(navigator.share){void navigator.share({title:"캘린더 공유",text:"SyncNest 캘린더를 공유해요",url});}
+                else{void navigator.clipboard.writeText(url).then(()=>alert("링크가 복사됐어요!"));}
+              }} className="w-full rounded-xl bg-indigo-600 py-2 text-xs font-bold text-white hover:bg-indigo-700">
+                카카오톡/메시지로 공유
+              </button>
+            </div>
+          ):(
+            <button onClick={async()=>{
+              setMultiShareLoading(true);
+              const res=await fetch("/api/multi-share",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({calendarIds:Array.from(calMultiSelected),shareRole:multiShareRole})});
+              const d=(await res.json()) as {token?:string;shareRole?:string};
+              if(d.token)setMultiShareLink({token:d.token,role:d.shareRole??"VIEWER"});
+              setMultiShareLoading(false);
+            }} disabled={multiShareLoading||calMultiSelected.size<2}
+              className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white disabled:opacity-40 hover:bg-indigo-700 transition">
+              {multiShareLoading?"생성 중...":"공유 링크 만들기"}
+            </button>
+          )}
+        </Modal>
+      )}
+
       {/* ── CONFIRM DELETE DIALOG ── */}
       {confirmDelete&&selected&&(
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
@@ -2303,12 +2394,19 @@ function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay
                 <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
                 공유
               </button>
-              <a href={`https://open.kakao.com/o/share?url=${encodeURIComponent(typeof window!=="undefined"?window.location.href:"")}&text=${encodeURIComponent(`📅 ${event.title} - ${fmtDate(event.startAt)}`)}`}
-                target="_blank" rel="noreferrer"
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-yellow-300 bg-yellow-50 py-2 text-xs font-bold text-yellow-700 hover:bg-yellow-100 transition">
+              <button onClick={()=>{
+                const shareText=`📅 ${event.title}\n🗓 ${fmtDate(event.startAt)}${!event.allDay?` ${fmtTime(event.startAt)}`:""}\n${event.location?`📍 ${event.location}\n`:""}SyncNest 일정 보기: ${window.location.href}`;
+                // 모바일: Web Share API (카카오톡 포함), 데스크탑: 클립보드 복사
+                if(navigator.share){
+                  void navigator.share({title:`📅 ${event.title}`,text:shareText,url:window.location.href});
+                } else {
+                  void navigator.clipboard.writeText(shareText).then(()=>alert("카카오톡에 붙여넣기 하려면\n복사된 내용을 카카오톡 채팅창에 붙여넣기 하세요.\n\n(모바일에서는 카카오톡 앱으로 바로 공유됩니다)"));
+                }
+              }}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-yellow-300 bg-yellow-50 py-2 text-xs font-bold text-yellow-700 hover:bg-yellow-100 transition active:scale-95">
                 <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 5.806 2 10.5c0 2.877 1.597 5.423 4.07 7.054L5 21l4.485-2.235C10.273 19.244 11.12 19.4 12 19.4c5.523 0 10-3.806 10-8.5S17.523 2 12 2z"/></svg>
                 카카오톡
-              </a>
+              </button>
             </div>
           </>
         )}

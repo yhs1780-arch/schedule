@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type Ctx = { params: Promise<{ token: string }> };
 
 export async function GET(_req: Request, ctx: Ctx) {

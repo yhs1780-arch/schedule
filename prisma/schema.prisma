@@ -185,3 +185,14 @@ model EmailVerification {
 
   @@index([email])
 }
+
+model MultiShare {
+  id          String   @id @default(cuid())
+  token       String   @unique
+  shareRole   String   @default("VIEWER")
+  ownerId     String
+  calendarIds String   // JSON array of calendarIds
+  createdAt   DateTime @default(now())
+
+  @@index([ownerId])
+}
