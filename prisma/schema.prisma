@@ -98,6 +98,8 @@ model Event {
   externalGoogleEventId String?
   url         String?
   reminderMinutes String?
+  // tags: JSON string array, e.g. ["work","urgent"]
+  tags        String?
 
   @@index([calendarId, startAt])
   @@index([createdById])

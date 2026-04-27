@@ -87,6 +87,7 @@ export async function POST(request: Request) {
     url?: string;
     reminderMinutes?: string;
     isTask?: boolean;
+    tags?: string | null;
   };
   const calendarId = body.calendarId?.trim();
   const title = body.title?.trim();
@@ -111,6 +112,17 @@ export async function POST(request: Request) {
   const url = body.url?.trim() || null;
   const reminderMinutes = body.reminderMinutes?.trim() || null;
   const isTask = body.isTask ?? false;
+  let tags: string | null = null;
+  if (body.tags != null && body.tags !== "") {
+    try {
+      const raw = body.tags;
+      const arr = typeof raw === "string" ? (raw.trim().startsWith("[") ? JSON.parse(raw) : raw.split(/[,\s#]+/).map(s => s.trim()).filter(Boolean)) : raw;
+      if (Array.isArray(arr) && arr.length) {
+        const clean = [...new Set(arr.map((t: unknown) => String(t).trim()).filter(Boolean))].slice(0, 20);
+        tags = clean.length ? JSON.stringify(clean) : null;
+      }
+    } catch { /* ignore */ }
+  }
 
   const event = await prisma.event.create({
     data: {
@@ -125,6 +137,7 @@ export async function POST(request: Request) {
       url,
       reminderMinutes,
       isTask,
+      tags,
       createdById: user.id,
     },
   });

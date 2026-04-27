@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useNotificationScheduler, requestNotificationPermission } from "@/hooks/useNotificationScheduler";
 import { playSound, SOUND_LABELS, type SoundType } from "@/lib/notification-sound";
 import { parseNL, summarizeParsed, type ParsedEvent } from "@/lib/nlp";
+import { CAL_COLORS, resolveCalendarColor as colOf } from "@/lib/calendar-colors";
 
 /* ─── AutoTextarea ───────────────────────────────────────────────── */
 function AutoTextarea({ value, onChange, placeholder, className, minRows = 1, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number }) {
@@ -250,23 +251,37 @@ type EventItem = {
   calendarId: string; createdById: string; createdBy?: { id: string; name: string };
   externalGoogleEventId?: string | null; guestName?: string | null;
   isTask?: boolean; isDone?: boolean;
+  tags?: string | null;
   comments: EventComment[]; activities: EventActivity[];
   reactions?: EventReaction[];
 };
 type Calendar = { id: string; key: string; name: string; color: string; members: CalendarMember[]; events: EventItem[] };
 type FlatEvent = EventItem & { calendarName: string; calendarColor: string };
 
-/* ─── Color system ───────────────────────────────────────────────── */
-const CAL_COLORS = [
-  { db: "bg-emerald-500/20 text-emerald-300", pill: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500", label: "초록" },
-  { db: "bg-sky-500/20 text-sky-300",         pill: "bg-sky-100 text-sky-700",         dot: "bg-sky-500",     label: "하늘" },
-  { db: "bg-violet-500/20 text-violet-300",   pill: "bg-violet-100 text-violet-700",   dot: "bg-violet-500",  label: "보라" },
-  { db: "bg-rose-500/20 text-rose-300",       pill: "bg-rose-100 text-rose-700",       dot: "bg-rose-500",    label: "빨강" },
-  { db: "bg-amber-500/20 text-amber-300",     pill: "bg-amber-100 text-amber-700",     dot: "bg-amber-500",   label: "주황" },
-  { db: "bg-indigo-500/20 text-indigo-300",   pill: "bg-indigo-100 text-indigo-700",   dot: "bg-indigo-500",  label: "남색" },
-  { db: "bg-pink-500/20 text-pink-300",       pill: "bg-pink-100 text-pink-700",       dot: "bg-pink-500",    label: "분홍" },
-];
-function colOf(db: string) { return CAL_COLORS.find(c => c.db === db) ?? CAL_COLORS[0]; }
+/** JSON 또는 일반 텍스트에서 태그 파싱 */
+function parseEventTags(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  const s = raw.trim();
+  if (!s) return [];
+  if (s.startsWith("[")) { try { const j = JSON.parse(s) as unknown; return Array.isArray(j) ? (j as string[]).map(t => String(t).trim()).filter(Boolean) : []; } catch { return []; } }
+  return [...new Set(s.split(/[,\n#]+/).map(t => t.replace(/^#/, "").trim()).filter(Boolean))];
+}
+function jsonTags(arr: string[]): string | null {
+  const u = [...new Set(arr.map(t => t.trim().replace(/^#/, "")).filter(Boolean))].slice(0, 20);
+  return u.length ? JSON.stringify(u) : null;
+}
+function weekDateKeysFromSunday(ref: Date): string[] {
+  const start = new Date(ref);
+  start.setHours(12, 0, 0, 0);
+  start.setDate(start.getDate() - start.getDay());
+  const out: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const x = new Date(start);
+    x.setDate(start.getDate() + i);
+    out.push(`${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`);
+  }
+  return out;
+}
 
 /* ─── KST 시간 헬퍼 ──────────────────────────────────────────────── */
 const DAYS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -334,7 +349,7 @@ export default function DashboardPage() {
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"month"|"week"|"list">("month");
-  const [weather, setWeather] = useState<{date:string;code:number;high:number;low:number}[]>([]);
+  const [weatherByDate, setWeatherByDate] = useState<Record<string, {code:number;high:number;low:number}>>({});
   const [swRegistered, setSwRegistered] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [sidebarOpen, setSidebarOpen] = useState(false); // closed by default on mobile
@@ -342,11 +357,14 @@ export default function DashboardPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [filterTags, setFilterTags] = useState<Set<string>>(new Set());
+  /** 목록 뷰: 날짜순 vs 태그별 섹션 */
+  const [listGroupBy, setListGroupBy] = useState<"date" | "tag">("date");
 
   /* ── new event ── */
   const [showEventModal, setShowEventModal] = useState(false);
   const [evTitle, setEvTitle] = useState(""); const [evLocation, setEvLocation] = useState(""); const [evLocDetail, setEvLocDetail] = useState(""); const [evUrl, setEvUrl] = useState("");
-  const [evDesc, setEvDesc] = useState(""); const [evAllDay, setEvAllDay] = useState(false);
+  const [evDesc, setEvDesc] = useState(""); const [evTags, setEvTags] = useState(""); const [evAllDay, setEvAllDay] = useState(false);
   const [evStartDate, setEvStartDate] = useState(todayStr()); const [evStartTime, setEvStartTime] = useState(nowTime());
   const [evHasEnd, setEvHasEnd] = useState(false); const [evEndDate, setEvEndDate] = useState(todayStr());
   const [evEndTime, setEvEndTime] = useState(() => { const h=parseInt(nowTime())+1; return `${pad(h<24?h:23)}:00`; });
@@ -404,7 +422,7 @@ export default function DashboardPage() {
   const [editTitle, setEditTitle] = useState(""); const [editAllDay, setEditAllDay] = useState(false);
   const [editSD, setEditSD] = useState(""); const [editST, setEditST] = useState("");
   const [editED, setEditED] = useState(""); const [editET, setEditET] = useState("");
-  const [editLoc, setEditLoc] = useState(""); const [editLocDetail, setEditLocDetail] = useState(""); const [editDesc, setEditDesc] = useState(""); const [editUrl, setEditUrl] = useState("");
+  const [editLoc, setEditLoc] = useState(""); const [editLocDetail, setEditLocDetail] = useState(""); const [editDesc, setEditDesc] = useState(""); const [editTags, setEditTags] = useState(""); const [editUrl, setEditUrl] = useState("");
   const [editCalId, setEditCalId] = useState("");
   const [editReminders, setEditReminders] = useState<number[]>([]);
   const [comment, setComment] = useState(""); const [submitting, setSubmitting] = useState(false);
@@ -488,13 +506,15 @@ export default function DashboardPage() {
             () => res(), { timeout: 3000 }
           ));
         }
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Asia%2FSeoul&forecast_days=7`;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=Asia%2FSeoul&forecast_days=16`;
         const r = await fetch(url);
         const d = await r.json() as { daily?: { time: string[]; weathercode: number[]; temperature_2m_max: number[]; temperature_2m_min: number[] } };
         if (d.daily) {
-          setWeather(d.daily.time.map((date, i) => ({
-            date, code: d.daily!.weathercode[i], high: Math.round(d.daily!.temperature_2m_max[i]), low: Math.round(d.daily!.temperature_2m_min[i])
-          })));
+          const map: Record<string, { code: number; high: number; low: number }> = {};
+          d.daily.time.forEach((date, i) => {
+            map[date] = { code: d.daily!.weathercode[i], high: Math.round(d.daily!.temperature_2m_max[i]), low: Math.round(d.daily!.temperature_2m_min[i]) };
+          });
+          setWeatherByDate(map);
         }
       } catch {}
     }
@@ -524,10 +544,30 @@ export default function DashboardPage() {
       .sort((a,b)=>a.startAt.localeCompare(b.startAt)),
     [calendars, hiddenIds]);
 
+  const allTagsFromEvents = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of visibleEvents) for (const t of parseEventTags(e.tags)) s.add(t);
+    return Array.from(s).sort((a, b) => a.localeCompare(b, "ko"));
+  }, [visibleEvents]);
+
   const filteredEvents = useMemo(() => {
-    const q=searchQuery.trim().toLowerCase(); if(!q) return visibleEvents;
-    return visibleEvents.filter(e=>e.title.toLowerCase().includes(q)||e.location?.toLowerCase().includes(q)||e.description?.toLowerCase().includes(q));
-  }, [visibleEvents, searchQuery]);
+    const q = searchQuery.trim().toLowerCase();
+    return visibleEvents.filter(e => {
+      if (filterTags.size > 0) {
+        const et = new Set(parseEventTags(e.tags));
+        let any = false;
+        for (const ft of filterTags) { if (et.has(ft)) { any = true; break; } }
+        if (!any) return false;
+      }
+      if (!q) return true;
+      if (e.title.toLowerCase().includes(q)) return true;
+      if (e.location?.toLowerCase().includes(q)) return true;
+      if (e.locationDetail?.toLowerCase().includes(q)) return true;
+      if (e.description?.toLowerCase().includes(q)) return true;
+      for (const t of parseEventTags(e.tags)) { if (t.toLowerCase().includes(q) || q.includes(t.toLowerCase())) return true; }
+      return false;
+    });
+  }, [visibleEvents, searchQuery, filterTags]);
 
   const selected = useMemo(()=>selectedId?visibleEvents.find(e=>e.id===selectedId)??null:null,[visibleEvents,selectedId]);
   const selectedCal = selected?calendars.find(c=>c.id===selected.calendarId)??null:null;
@@ -568,7 +608,7 @@ export default function DashboardPage() {
 
   /* ── actions ── */
   function resetForm() {
-    setEvTitle("");setEvLocation("");setEvLocDetail("");setEvDesc("");setEvUrl("");setEvAllDay(false);setEvHasEnd(false);
+    setEvTitle("");setEvLocation("");setEvLocDetail("");setEvDesc("");setEvTags("");setEvUrl("");setEvAllDay(false);setEvHasEnd(false);
     setEvReminders([]);setShowSuggestions(false);setTitleSuggestions([]);setEvIsTask(false);
     setNlInput("");setNlParsed(null);setNlMode(false);
     setEvStartDate(todayStr());setEvStartTime(nowTime());setEvEndDate(todayStr());
@@ -629,14 +669,15 @@ export default function DashboardPage() {
     const tempId=`_t_${Date.now()}`;
     const locMain = evLocation.trim() || null;
     const locDetail = evLocDetail.trim() || null;
-    const tmp:EventItem={id:tempId,title,startAt,endAt,allDay:evAllDay,location:locMain,locationDetail:locDetail,description:evDesc.trim()||null,url:evUrl.trim()||null,reminderMinutes:evReminders.join(",")||null,calendarId:calId,createdById:viewer?.id??"",externalGoogleEventId:null,isTask:evIsTask,isDone:false,comments:[],activities:[]};
+    const tagStr = jsonTags(parseEventTags(evTags));
+    const tmp:EventItem={id:tempId,title,startAt,endAt,allDay:evAllDay,location:locMain,locationDetail:locDetail,description:evDesc.trim()||null,url:evUrl.trim()||null,reminderMinutes:evReminders.join(",")||null,calendarId:calId,createdById:viewer?.id??"",externalGoogleEventId:null,isTask:evIsTask,isDone:false,tags:tagStr,comments:[],activities:[]};
     setShowEventModal(false); resetForm();
     setCalendars(p=>p.map(c=>c.id===calId?{...c,events:[...c.events,tmp]}:c));
     // 최근 일정 저장
     saveRecentEvent({id:tempId,title,calendarId:calId,location:locMain,startAt});
     setRecentEvents(getRecentEvents());
     try{
-      const res=await fetch("/api/events",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({calendarId:calId,title,startAt,endAt,allDay:evAllDay,location:locMain??undefined,locationDetail:locDetail??undefined,description:evDesc.trim()||undefined,url:evUrl.trim()||undefined,reminderMinutes:evReminders.join(",")||undefined,isTask:evIsTask})});
+      const res=await fetch("/api/events",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({calendarId:calId,title,startAt,endAt,allDay:evAllDay,location:locMain??undefined,locationDetail:locDetail??undefined,description:evDesc.trim()||undefined,url:evUrl.trim()||undefined,reminderMinutes:evReminders.join(",")||undefined,isTask:evIsTask,tags:tagStr??undefined})});
       if(res.ok){const d=(await res.json()) as {event?:EventItem};if(d.event){setCalendars(p=>p.map(c=>({...c,events:c.events.map(e=>e.id===tempId?{...e,...d.event,calendarId:calId}:e)})));}}
     }catch{setCalendars(p=>p.map(c=>({...c,events:c.events.filter(e=>e.id!==tempId)})));}
   }
@@ -706,7 +747,8 @@ export default function DashboardPage() {
     const locMain = editLoc.trim() || null;
     const locDetail = editLocDetail.trim() || null;
     const newCalId=editCalId&&editCalId!==selected.calendarId?editCalId:selected.calendarId;
-    const updated={...selected,title:editTitle.trim()||selected.title,startAt,endAt,allDay:editAllDay,location:locMain,locationDetail:locDetail,description:editDesc.trim()||null,url:editUrl.trim()||null,reminderMinutes:editReminders.join(",")||null,calendarId:newCalId};
+    const tagStr = jsonTags(parseEventTags(editTags));
+    const updated={...selected,title:editTitle.trim()||selected.title,startAt,endAt,allDay:editAllDay,location:locMain,locationDetail:locDetail,description:editDesc.trim()||null,url:editUrl.trim()||null,reminderMinutes:editReminders.join(",")||null,calendarId:newCalId,tags:tagStr};
     // 낙관적 업데이트 즉시 적용
     setCalendars(p=>p.map(c=>({...c,events:c.events.map(e=>e.id===selected.id?{...e,...updated}:e)})));
     setEditMode(false); setSubmitting(false);
@@ -721,6 +763,7 @@ export default function DashboardPage() {
     fetch(`/api/events/${selected.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({
       title:editTitle.trim()||undefined,startAt,endAt,allDay:editAllDay,
       location:locMain,locationDetail:locDetail,description:editDesc.trim()||null,url:editUrl.trim()||null,reminderMinutes:editReminders.join(",")||null,
+      tags: tagStr,
       calendarId:newCalId!==selected.calendarId?newCalId:undefined,
     })}).catch(()=>void load());
   }
@@ -814,7 +857,7 @@ export default function DashboardPage() {
     setCalendars(p => p.map(c => c.id === ev.calendarId ? { ...c, events: [...c.events, tmp] } : c));
     try {
       const res = await fetch("/api/events", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ calendarId: ev.calendarId, title: ev.title, startAt: nextStart, endAt: nextEnd, allDay: ev.allDay, location: ev.location, locationDetail: ev.locationDetail, description: ev.description, url: ev.url }) });
+        body: JSON.stringify({ calendarId: ev.calendarId, title: ev.title, startAt: nextStart, endAt: nextEnd, allDay: ev.allDay, location: ev.location, locationDetail: ev.locationDetail, description: ev.description, url: ev.url, tags: ev.tags || undefined, isTask: ev.isTask, reminderMinutes: ev.reminderMinutes || undefined }) });
       if (res.ok) {
         const d = (await res.json()) as { event?: EventItem };
         if (d.event) setCalendars(p => p.map(c => ({ ...c, events: c.events.map(e => e.id === tempId ? { ...e, ...d.event, calendarId: ev.calendarId } : e) })));
@@ -901,7 +944,7 @@ export default function DashboardPage() {
     setShowEventModal(true);
   }
   function openEvent(id:string){setSelectedId(id);setEditMode(false);setComment("");setDaySummaryDate(null);}
-  function startEdit(e:FlatEvent){setEditMode(true);setEditTitle(e.title);setEditAllDay(e.allDay??false);setEditSD(isoToDate(e.startAt));setEditST(isoToTime(e.startAt));setEditED(e.endAt?isoToDate(e.endAt):"");setEditET(e.endAt?isoToTime(e.endAt):"");setEditLoc(e.location??"");setEditLocDetail(e.locationDetail??"");setEditDesc(e.description??"");setEditUrl(e.url??"");setEditReminders(e.reminderMinutes?e.reminderMinutes.split(",").map(Number).filter(Boolean):[]);setEditCalId(e.calendarId);setConfirmDelete(false);}
+  function startEdit(e:FlatEvent){setEditMode(true);setEditTitle(e.title);setEditAllDay(e.allDay??false);setEditSD(isoToDate(e.startAt));setEditST(isoToTime(e.startAt));setEditED(e.endAt?isoToDate(e.endAt):"");setEditET(e.endAt?isoToTime(e.endAt):"");setEditLoc(e.location??"");setEditLocDetail(e.locationDetail??"");setEditDesc(e.description??"");setEditTags(parseEventTags(e.tags).join(", "));setEditUrl(e.url??"");setEditReminders(e.reminderMinutes?e.reminderMinutes.split(",").map(Number).filter(Boolean):[]);setEditCalId(e.calendarId);setConfirmDelete(false);}
 
   function handleDayClick(dateStr:string){
     const isMobile = typeof window!=="undefined"&&window.innerWidth<1024;
@@ -992,9 +1035,9 @@ export default function DashboardPage() {
         <div className="ml-auto flex items-center gap-1.5">
           {/* search */}
           {showSearch?(
-            <div className="flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-2.5 py-1.5 ring-2 ring-indigo-100">
-              <svg className="h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input autoFocus value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} onKeyDown={e=>e.key==="Escape"&&(setShowSearch(false),setSearchQuery(""))} placeholder="검색..." className="w-32 text-sm outline-none"/>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-2.5 py-2 ring-2 ring-indigo-100 sm:max-w-sm sm:flex-initial">
+              <svg className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              <input autoFocus value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} onKeyDown={e=>e.key==="Escape"&&(setShowSearch(false),setSearchQuery(""))} placeholder="제목·메모·장소·태그…" className="min-w-0 flex-1 text-sm outline-none"/>
               <button onClick={()=>{setShowSearch(false);setSearchQuery("");}}>
                 <svg className="h-3.5 w-3.5 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
               </button>
@@ -1242,40 +1285,39 @@ export default function DashboardPage() {
           onTouchStart={e=>{touchX.current=e.touches[0].clientX;}}
           onTouchEnd={e=>{if(touchX.current===null)return;const d=e.changedTouches[0].clientX-touchX.current;if(Math.abs(d)>60)setCurrentDate(p=>new Date(p.getFullYear(),p.getMonth()+(d<0?1:-1),1));touchX.current=null;}}
         >
-          {searchQuery&&(
-            <div className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs text-amber-700">
-              <span className="font-semibold">"{searchQuery}"</span> 검색 결과: {filteredEvents.length}개
-              <button onClick={()=>setSearchQuery("")} className="ml-2 underline">초기화</button>
-            </div>
-          )}
-          {/* 날씨 헤더 */}
-          {weather.length>0&&view==="month"&&(
-            <div className="flex-shrink-0 overflow-x-auto border-b border-gray-100 bg-white">
-              <div className="flex gap-0 min-w-max">
-                {weather.slice(0,7).map(w=>{
-                  const icon=weatherIcon(w.code);
-                  const d=new Date(w.date+"T00:00:00");
-                  const isToday=sameDay(d,today);
-                  return(
-                    <div key={w.date} className={`flex flex-col items-center px-3 py-1.5 text-center min-w-[46px] ${isToday?"bg-indigo-50":""}`}>
-                      <span className="text-[10px] text-gray-400">{DAYS[d.getDay()]}</span>
-                      <span className="text-base">{icon}</span>
-                      <span className="text-[9px] font-semibold text-red-500">{w.high}°</span>
-                      <span className="text-[9px] text-blue-400">{w.low}°</span>
-                    </div>
-                  );
-                })}
+          {(searchQuery||filterTags.size>0)&&(
+            <div className="border-b border-amber-100 bg-amber-50/90 px-3 sm:px-4 py-2.5 text-xs text-amber-800">
+              <div className="flex flex-wrap items-center gap-2">
+                {searchQuery&&<><span className="font-semibold">"{searchQuery}"</span><span>검색 · {filteredEvents.length}건</span></>}
+                {filterTags.size>0&&<><span className="rounded bg-amber-200/60 px-1.5 py-0.5 text-[10px] font-bold">태그 {filterTags.size}개</span><span>필터 적용</span></>}
+                <button onClick={()=>{setSearchQuery("");setFilterTags(new Set());}} className="ml-auto text-[11px] font-semibold text-amber-700 underline underline-offset-2">초기화</button>
               </div>
+              {allTagsFromEvents.length>0&&(
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  <span className="w-full text-[10px] font-bold text-amber-700/80 sm:w-auto sm:pr-1">빠른 태그:</span>
+                  {allTagsFromEvents.slice(0, 24).map(t=>{
+                    const on=filterTags.has(t);
+                    return(
+                      <button key={t} onClick={()=>setFilterTags(p=>{const n=new Set(p);if(n.has(t))n.delete(t);else n.add(t);return n;})}
+                        className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold transition ${on?"border-amber-500 bg-amber-200 text-amber-900":"border-amber-200/60 bg-white/80 text-amber-800 hover:border-amber-400"}`}>
+                        {on ? "✓ " : ""}#{t}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
           {view==="month"?(
             <MonthView year={year} month={month} today={today} events={filteredEvents} selectedId={selectedId} onDayClick={handleDayClick} onEventClick={openEvent}
+              weatherByDate={Object.keys(weatherByDate).length>0?weatherByDate:undefined} weatherWeekRef={today}
               onDragStart={id=>setDraggedEventId(id)} onDrop={(id,date)=>{const ev=visibleEvents.find(e=>e.id===id);if(ev&&date!==`${new Date(ev.startAt).getFullYear()}-${pad(new Date(ev.startAt).getMonth()+1)}-${pad(new Date(ev.startAt).getDate())}`)setDndConfirm({ev,targetDate:date});setDraggedEventId(null);}} draggedId={draggedEventId??undefined}/>
           ):view==="week"?(
             <WeekView currentDate={currentDate} events={filteredEvents} selectedId={selectedId} today={today} onEventClick={openEvent} onDayClick={handleDayClick}/>
           ):(
             <ListView events={filteredEvents} selectedId={selectedId} onEventClick={openEvent}
-              bulkMode={bulkMode} bulkSelected={bulkSelected} onToggleSelect={toggleBulkSelect}/>
+              bulkMode={bulkMode} bulkSelected={bulkSelected} onToggleSelect={toggleBulkSelect}
+              groupBy={listGroupBy} onGroupByChange={setListGroupBy}/>
           )}
         </main>
 
@@ -1309,10 +1351,10 @@ export default function DashboardPage() {
                 <div className="h-1 w-10 rounded-full bg-gray-300"/>
               </div>
               <EventPanel event={selected} calendar={selectedCal} viewer={viewer} canEdit={canEdit}
-                editMode={editMode} editTitle={editTitle} editAllDay={editAllDay} editSD={editSD} editST={editST} editED={editED} editET={editET} editLoc={editLoc} editLocDetail={editLocDetail} editDesc={editDesc} editUrl={editUrl} editReminders={editReminders}
+                editMode={editMode} editTitle={editTitle} editAllDay={editAllDay} editSD={editSD} editST={editST} editED={editED} editET={editET} editLoc={editLoc} editLocDetail={editLocDetail} editDesc={editDesc} editTags={editTags} editUrl={editUrl} editReminders={editReminders}
                 comment={comment} submitting={submitting}
                 onEditStart={()=>startEdit(selected)} onEditCancel={()=>setEditMode(false)}
-                onFieldChange={{title:setEditTitle,allDay:setEditAllDay,sd:setEditSD,st:setEditST,ed:setEditED,et:setEditET,loc:setEditLoc,locDetail:setEditLocDetail,desc:setEditDesc,url:setEditUrl,reminders:setEditReminders}}
+                onFieldChange={{title:setEditTitle,allDay:setEditAllDay,sd:setEditSD,st:setEditST,ed:setEditED,et:setEditET,loc:setEditLoc,locDetail:setEditLocDetail,desc:setEditDesc,tags:setEditTags,url:setEditUrl,reminders:setEditReminders}}
                 onSave={()=>void saveEdit()} onCommentChange={setComment} onAddComment={()=>void addComment()}
                 onDelete={()=>setConfirmDelete(true)} onClose={()=>setSelectedId(null)}
                 onDuplicate={()=>void duplicateEvent(selected)}
@@ -1533,6 +1575,10 @@ export default function DashboardPage() {
             </div>
             <AutoTextarea value={evDesc} onChange={e=>setEvDesc(e.target.value)} placeholder="메모 (선택)" minRows={2}
               className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none placeholder:text-gray-300 focus:border-indigo-400"/>
+            <div>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">태그 (선택)</p>
+              <input value={evTags} onChange={e=>setEvTags(e.target.value)} placeholder="업무, 출장, #긴급 — 검색·필터에 사용" className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none placeholder:text-gray-300 focus:border-indigo-400"/>
+            </div>
 
             {/* 알림 설정 */}
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
@@ -1638,13 +1684,15 @@ export default function DashboardPage() {
             <input autoFocus value={calName} onChange={e=>setCalName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&void createCalendar()} placeholder="캘린더 이름 (예: 팀 업무, 알바, 개인)"
               className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"/>
             <div>
-              <p className="mb-2 text-xs font-medium text-gray-500">색상</p>
-              <div className="flex flex-wrap gap-2.5">
-                {CAL_COLORS.map(c=>(
-                  <button key={c.db} onClick={()=>setCalColor(c.db)} className={`flex flex-col items-center gap-1 rounded-xl p-2 transition ${calColor===c.db?"bg-gray-100 ring-2 ring-offset-1 ring-indigo-400":"hover:bg-gray-50"}`}>
-                    <span className={`h-7 w-7 rounded-full ${c.dot}`}/><span className="text-[10px] text-gray-500">{c.label}</span>
-                  </button>
-                ))}
+              <p className="mb-2 text-xs font-medium text-gray-500">색상 ({CAL_COLORS.length}가지)</p>
+              <div className="max-h-52 overflow-y-auto overscroll-contain rounded-xl border border-gray-100 bg-gray-50/50 p-2">
+                <div className="flex flex-wrap gap-2">
+                  {CAL_COLORS.map(c=>(
+                    <button key={c.db} type="button" onClick={()=>setCalColor(c.db)} className={`flex flex-col items-center gap-1 rounded-xl p-1.5 transition ${calColor===c.db?"bg-white ring-2 ring-offset-1 ring-indigo-400":"hover:bg-white"}`}>
+                      <span className={`h-6 w-6 rounded-full ${c.dot}`}/><span className="max-w-[52px] truncate text-[9px] text-gray-500">{c.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             <p className="rounded-lg bg-indigo-50 p-2.5 text-xs text-indigo-600">💡 만들고 나서 멤버를 이메일로 초대할 수 있어요.</p>
@@ -1665,13 +1713,15 @@ export default function DashboardPage() {
               onKeyDown={e=>e.key==="Enter"&&void saveEditCal()}
               placeholder="캘린더 이름" className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"/>
             <div>
-              <p className="mb-2 text-xs font-medium text-gray-500">색상</p>
-              <div className="flex flex-wrap gap-2.5">
-                {CAL_COLORS.map(c=>(
-                  <button key={c.db} onClick={()=>setEditCalColor(c.db)} className={`flex flex-col items-center gap-1 rounded-xl p-2 transition ${editCalColor===c.db?"bg-gray-100 ring-2 ring-offset-1 ring-indigo-400":"hover:bg-gray-50"}`}>
-                    <span className={`h-7 w-7 rounded-full ${c.dot}`}/><span className="text-[10px] text-gray-500">{c.label}</span>
-                  </button>
-                ))}
+              <p className="mb-2 text-xs font-medium text-gray-500">색상 ({CAL_COLORS.length}가지)</p>
+              <div className="max-h-52 overflow-y-auto overscroll-contain rounded-xl border border-gray-100 bg-gray-50/50 p-2">
+                <div className="flex flex-wrap gap-2">
+                  {CAL_COLORS.map(c=>(
+                    <button key={c.db} type="button" onClick={()=>setEditCalColor(c.db)} className={`flex flex-col items-center gap-1 rounded-xl p-1.5 transition ${editCalColor===c.db?"bg-white ring-2 ring-offset-1 ring-indigo-400":"hover:bg-white"}`}>
+                      <span className={`h-6 w-6 rounded-full ${c.dot}`}/><span className="max-w-[52px] truncate text-[9px] text-gray-500">{c.label}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             {/* 삭제 확인 */}
@@ -1957,19 +2007,51 @@ function DaySummarySheet({dateStr,events,onEventClick,onNewEvent,onClose}:{
 }
 
 /* ─── Month View ─────────────────────────────────────────────────── */
-function MonthView({year,month,today,events,selectedId,onDayClick,onEventClick,onDragStart,onDrop,draggedId}:{
+function MonthView({year,month,today,events,selectedId,onDayClick,onEventClick,onDragStart,onDrop,draggedId,weatherByDate,weatherWeekRef}:{
   year:number;month:number;today:Date;events:FlatEvent[];selectedId:string|null;
   onDayClick:(d:string)=>void;onEventClick:(id:string)=>void;
   onDragStart?:(id:string)=>void;onDrop?:(id:string,date:string)=>void;draggedId?:string;
+  weatherByDate?: Record<string, {code:number;high:number;low:number}>; weatherWeekRef?: Date;
 }){
   const [dragOver,setDragOver]=useState<string|null>(null);
   const rows=buildGrid(year,month);
+  const weekKeys = weatherByDate && weatherWeekRef ? weekDateKeysFromSunday(weatherWeekRef) : null;
   function eventsOn(day:number){return events.filter(e=>{const d=new Date(e.startAt);if(e.endAt&&!sameDay(new Date(e.startAt),new Date(e.endAt)))return false;return d.getFullYear()===year&&d.getMonth()===month&&d.getDate()===day;});}
   const rowH=`calc((100dvh - 112px) / ${rows.length})`;
   return(
     <div className="flex flex-1 flex-col overflow-auto select-none">
-      <div className="grid grid-cols-7 border-b border-gray-200 bg-white flex-shrink-0">
-        {DAYS.map((d,i)=><div key={d} className={`py-2 text-center text-xs font-semibold ${i===0?"text-red-400":i===6?"text-blue-400":"text-gray-400"}`}>{d}</div>)}
+      {/* 주간 날씨 — 달력과 동일 grid-cols-7(일~토) 정렬 + 일자 + 출처 */}
+      {weekKeys && weatherByDate && (
+        <div className="flex-shrink-0 border-b border-slate-200/80 bg-gradient-to-b from-slate-50 to-white">
+          <div className="grid grid-cols-7 divide-x divide-slate-100/90">
+            {weekKeys.map((dateKey, i) => {
+              const w = weatherByDate[dateKey];
+              const d = new Date(dateKey + "T12:00:00");
+              const isTodayCell = sameDay(d, today);
+              return (
+                <div key={dateKey} className={`flex min-h-[4.5rem] sm:min-h-[4.75rem] flex-col items-center justify-center px-0.5 py-1.5 sm:py-2 text-center ${
+                  i === 0 ? "text-rose-500" : i === 6 ? "text-blue-500" : "text-slate-500"
+                } ${isTodayCell ? "bg-indigo-50/90" : ""}`}>
+                  <span className="text-[9px] sm:text-[10px] font-bold leading-tight tracking-tight">{DAYS[i]}</span>
+                  <span className="text-[10px] sm:text-[11px] font-bold tabular-nums text-slate-700">{d.getMonth() + 1}/{d.getDate()}</span>
+                  {w ? (
+                    <>
+                      <span className="mt-0.5 text-[1.1rem] sm:text-xl leading-none" aria-hidden>{weatherIcon(w.code)}</span>
+                      <span className="text-[9px] font-bold tabular-nums text-rose-500">{w.high}°</span>
+                      <span className="text-[9px] tabular-nums text-sky-500 -mt-0.5">{w.low}°</span>
+                    </>
+                  ) : (
+                    <span className="mt-1 text-[9px] text-slate-300">—</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="border-b border-slate-100/80 px-2 py-0.5 text-right text-[9px] text-slate-400">기상·최고·최저: Open-Meteo</p>
+        </div>
+      )}
+      <div className="grid grid-cols-7 border-b border-gray-200 bg-white/95 flex-shrink-0">
+        {DAYS.map((d,i)=><div key={d} className={`py-2 sm:py-2.5 text-center text-[11px] sm:text-xs font-bold ${i===0?"text-red-400":i===6?"text-blue-400":"text-slate-500"}`}>{d}</div>)}
       </div>
       <div className="flex-1">
         {rows.map((row,ri)=>{
@@ -2033,77 +2115,195 @@ function MonthView({year,month,today,events,selectedId,onDayClick,onEventClick,o
   );
 }
 
-/* ─── List View ──────────────────────────────────────────────────── */
-function ListView({events,selectedId,onEventClick,bulkMode,bulkSelected,onToggleSelect}:{
-  events:FlatEvent[];selectedId:string|null;onEventClick:(id:string)=>void;
-  bulkMode?:boolean;bulkSelected?:Set<string>;onToggleSelect?:(id:string)=>void;
-}){
-  const grouped=useMemo(()=>{
-    const map=new Map<string,FlatEvent[]>();
-    for(const e of events){const d=new Date(e.startAt),k=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;if(!map.has(k))map.set(k,[]);map.get(k)!.push(e);}
-    return Array.from(map.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
-  },[events]);
-  if(!grouped.length)return(<div className="flex flex-1 items-center justify-center"><div className="text-center text-gray-400"><p className="text-5xl">📅</p><p className="mt-3 text-sm">일정이 없습니다.</p></div></div>);
-  return(
-    <div className="flex-1 overflow-y-auto p-4">
-      <div className="mx-auto max-w-2xl space-y-5">
-        {grouped.map(([key,dayEvs])=>{
-          const d=new Date(key+"T00:00:00"),isToday=sameDay(d,new Date());
-          return(
-            <div key={key}>
-              <div className="mb-2 flex items-center gap-2">
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${isToday?"bg-indigo-600 text-white":"bg-gray-100 text-gray-600"}`}>
-                  {d.getFullYear()}년 {MONTHS[d.getMonth()]} {d.getDate()}일 ({DAYS[d.getDay()]}){isToday?" · 오늘":""}
-                </span>
-                {bulkMode&&(
-                  <button onClick={()=>dayEvs.forEach(e=>onToggleSelect?.(e.id))}
-                    className="text-[10px] text-indigo-500 hover:underline">
-                    이 날 전체 선택
-                  </button>
-                )}
-              </div>
-              <div className="space-y-2">
-                {dayEvs.map(e=>{
-                  const col=colOf(e.calendarColor),isMulti=e.endAt&&!sameDay(new Date(e.startAt),new Date(e.endAt));
-                  const isSelected=bulkSelected?.has(e.id)??false;
-                  const handleClick=()=>{
-                    if(bulkMode)onToggleSelect?.(e.id);
-                    else onEventClick(e.id);
-                  };
-                  return(
-                    <div key={e.id} className={`flex items-center gap-2 rounded-xl border bg-white shadow-sm transition
-                      ${bulkMode&&isSelected?"border-red-400 ring-2 ring-red-100 bg-red-50/30":""}
-                      ${!bulkMode&&selectedId===e.id?"border-indigo-400 ring-2 ring-indigo-100":""}
-                      ${!bulkMode&&selectedId!==e.id?"border-gray-200 hover:border-indigo-200":""}`}>
-                      {bulkMode&&(
-                        <button onClick={()=>onToggleSelect?.(e.id)} className="flex-shrink-0 pl-3">
-                          <div className={`h-5 w-5 rounded-md border-2 flex items-center justify-center transition
-                            ${isSelected?"border-red-500 bg-red-500":"border-gray-300 hover:border-red-400"}`}>
-                            {isSelected&&<svg className="h-3 w-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
-                          </div>
-                        </button>
-                      )}
-                      <button onClick={handleClick}
-                        className="flex flex-1 items-center gap-3 p-4 text-left hover:bg-gray-50/50 transition rounded-xl active:scale-[0.99]">
-                        <span className={`h-3 w-3 flex-shrink-0 rounded-full ${col.dot}`}/>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-900 truncate">{e.title}</p>
-                          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-gray-400">
-                            {e.allDay?<span>하루 종일</span>:<span>{fmtTime(e.startAt)}{e.endAt&&!isMulti?` ~ ${fmtTime(e.endAt)}`:""}</span>}
-                            {isMulti&&e.endAt&&<span className="text-indigo-500">~ {fmtDate(e.endAt)}</span>}
-                            <span className={`rounded px-1.5 py-0.5 ${col.pill}`}>{e.calendarName}</span>
-                            {e.location&&<span className="truncate max-w-[140px]">📍 {e.location}</span>}
-                          </p>
-                        </div>
-                        {e.comments.length>0&&<span className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-400"><svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>{e.comments.length}</span>}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
+/* ─── List View rows (shared by date / tag grouping) ───────────────── */
+function ListEventRow({ e, selectedId, bulkMode, bulkSelected, onToggleSelect, onEventClick }: {
+  e: FlatEvent; selectedId: string | null; bulkMode?: boolean; bulkSelected?: Set<string>;
+  onToggleSelect?: (id: string) => void; onEventClick: (id: string) => void;
+}) {
+  const col = colOf(e.calendarColor);
+  const isMulti = e.endAt && !sameDay(new Date(e.startAt), new Date(e.endAt));
+  const isSelected = bulkSelected?.has(e.id) ?? false;
+  const handleClick = () => { if (bulkMode) onToggleSelect?.(e.id); else onEventClick(e.id); };
+  const tags = parseEventTags(e.tags);
+  return (
+    <div className={`flex items-center gap-2 rounded-xl border bg-white shadow-sm transition
+      ${bulkMode && isSelected ? "border-red-400 ring-2 ring-red-100 bg-red-50/30" : ""}
+      ${!bulkMode && selectedId === e.id ? "border-indigo-400 ring-2 ring-indigo-100" : ""}
+      ${!bulkMode && selectedId !== e.id ? "border-gray-200 hover:border-indigo-200" : ""}`}>
+      {bulkMode && (
+        <button type="button" onClick={() => onToggleSelect?.(e.id)} className="flex-shrink-0 pl-3">
+          <div className={`h-5 w-5 rounded-md border-2 flex items-center justify-center transition
+            ${isSelected ? "border-red-500 bg-red-500" : "border-gray-300 hover:border-red-400"}`}>
+            {isSelected && <svg className="h-3 w-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
+          </div>
+        </button>
+      )}
+      <button type="button" onClick={handleClick}
+        className="flex flex-1 items-center gap-3 p-4 text-left hover:bg-gray-50/50 transition rounded-xl active:scale-[0.99]">
+        <span className={`h-3 w-3 flex-shrink-0 rounded-full ${col.dot}`} />
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900 truncate">{e.title}</p>
+          {tags.length > 0 && (
+            <div className="mt-0.5 flex flex-wrap gap-1">
+              {tags.slice(0, 4).map(t => (
+                <span key={t} className="rounded bg-slate-100 px-1 py-px text-[9px] font-medium text-slate-500">#{t}</span>
+              ))}
+              {tags.length > 4 && <span className="text-[9px] text-slate-400">+{tags.length - 4}</span>}
             </div>
-          );
-        })}
+          )}
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-gray-400">
+            {e.allDay ? <span>하루 종일</span> : <span>{fmtTime(e.startAt)}{e.endAt && !isMulti ? ` ~ ${fmtTime(e.endAt)}` : ""}</span>}
+            {isMulti && e.endAt && <span className="text-indigo-500">~ {fmtDate(e.endAt)}</span>}
+            <span className={`rounded px-1.5 py-0.5 ${col.pill}`}>{e.calendarName}</span>
+            {e.location && <span className="truncate max-w-[140px]">📍 {e.location}</span>}
+          </p>
+        </div>
+        {e.comments.length > 0 && (
+          <span className="flex-shrink-0 flex items-center gap-1 text-xs text-gray-400">
+            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+            {e.comments.length}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+/* ─── List View ──────────────────────────────────────────────────── */
+function ListView({ events, selectedId, onEventClick, bulkMode, bulkSelected, onToggleSelect, groupBy, onGroupByChange }: {
+  events: FlatEvent[]; selectedId: string | null; onEventClick: (id: string) => void;
+  bulkMode?: boolean; bulkSelected?: Set<string>; onToggleSelect?: (id: string) => void;
+  groupBy: "date" | "tag";
+  onGroupByChange: (v: "date" | "tag") => void;
+}) {
+  const groupedByDate = useMemo(() => {
+    const map = new Map<string, FlatEvent[]>();
+    for (const e of events) {
+      const d = new Date(e.startAt);
+      const k = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(e);
+    }
+    for (const [, arr] of map) {
+      arr.sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [events]);
+
+  const groupedByTag = useMemo(() => {
+    const tagTo: Map<string, FlatEvent[]> = new Map();
+    const untagged: FlatEvent[] = [];
+    for (const e of events) {
+      const tlist = parseEventTags(e.tags);
+      if (tlist.length === 0) untagged.push(e);
+      else for (const t of tlist) {
+        if (!tagTo.has(t)) tagTo.set(t, []);
+        tagTo.get(t)!.push(e);
+      }
+    }
+    const sortEvs = (arr: FlatEvent[]) => {
+      const seen = new Set<string>();
+      const out: FlatEvent[] = [];
+      for (const ev of [...arr].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())) {
+        if (seen.has(ev.id)) continue;
+        seen.add(ev.id);
+        out.push(ev);
+      }
+      return out;
+    };
+    const rows: { key: string; label: string; evs: FlatEvent[] }[] = [];
+    for (const t of Array.from(tagTo.keys()).sort((a, b) => a.localeCompare(b, "ko"))) {
+      rows.push({ key: `t:${t}`, label: t, evs: sortEvs(tagTo.get(t)!), });
+    }
+    if (untagged.length) {
+      rows.push({
+        key: "t:__none",
+        label: "태그 없음",
+        evs: sortEvs(untagged),
+      });
+    }
+    return rows;
+  }, [events]);
+
+  const isEmpty = groupBy === "date" ? groupedByDate.length === 0 : events.length === 0;
+  if (isEmpty) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 px-4 py-2.5 backdrop-blur-sm">
+          <div className="mx-auto flex max-w-2xl items-center justify-between gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">목록 묶기</span>
+            <div className="flex rounded-lg border border-gray-200 p-0.5">
+              <button type="button" onClick={() => onGroupByChange("date")} className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${groupBy === "date" ? "bg-indigo-600 text-white" : "text-gray-500"}`}>날짜별</button>
+              <button type="button" onClick={() => onGroupByChange("tag")} className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${groupBy === "tag" ? "bg-indigo-600 text-white" : "text-gray-500"}`}>태그별</button>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-center text-gray-400">
+            <p className="text-5xl">📅</p>
+            <p className="mt-3 text-sm">일정이 없습니다.</p>
+            {groupBy === "tag" && <p className="mt-1 text-xs text-slate-400">태그는 일정 입력 시 쉼표·#로 넣을 수 있어요.</p>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="sticky top-0 z-10 border-b border-gray-100 bg-white/95 px-4 py-2.5 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-2xl flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center justify-between gap-2 sm:justify-start">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">목록 묶기</span>
+            <span className="text-[10px] text-slate-400 sm:hidden">{groupBy === "date" ? "날짜 순" : "같은 태그끼리"}</span>
+          </div>
+          <div className="flex w-full sm:w-auto rounded-lg border border-gray-200 p-0.5">
+            <button type="button" onClick={() => onGroupByChange("date")} className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-semibold sm:flex-initial ${groupBy === "date" ? "bg-indigo-600 text-white shadow-sm" : "text-gray-500 hover:bg-gray-50"}`}>날짜별</button>
+            <button type="button" onClick={() => onGroupByChange("tag")} className={`flex-1 rounded-md px-2.5 py-1.5 text-xs font-semibold sm:flex-initial ${groupBy === "tag" ? "bg-indigo-600 text-white shadow-sm" : "text-gray-500 hover:bg-gray-50"}`}>태그별</button>
+          </div>
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="mx-auto max-w-2xl space-y-5">
+          {groupBy === "date"
+            ? groupedByDate.map(([key, dayEvs]) => {
+              const d = new Date(key + "T00:00:00");
+              const isToday = sameDay(d, new Date());
+              return (
+                <div key={key}>
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${isToday ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600"}`}>
+                      {d.getFullYear()}년 {MONTHS[d.getMonth()]} {d.getDate()}일 ({DAYS[d.getDay()]}){isToday ? " · 오늘" : ""}
+                    </span>
+                    {bulkMode && (
+                      <button type="button" onClick={() => dayEvs.forEach(ev => onToggleSelect?.(ev.id))} className="text-[10px] text-indigo-500 hover:underline">이 날 전체 선택</button>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {dayEvs.map(e => (
+                      <ListEventRow key={e.id} e={e} selectedId={selectedId} bulkMode={bulkMode} bulkSelected={bulkSelected} onToggleSelect={onToggleSelect} onEventClick={onEventClick} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+            : groupedByTag.map(({ key, label, evs }) => (
+              <div key={key}>
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="rounded-full border border-amber-200/80 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900">#{label}</span>
+                  <span className="text-[10px] text-slate-400">{evs.length}건</span>
+                  {bulkMode && (
+                    <button type="button" onClick={() => evs.forEach(ev => onToggleSelect?.(ev.id))} className="text-[10px] text-indigo-500 hover:underline">이 태그 전체 선택</button>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {evs.map(e => (
+                    <ListEventRow key={`${key}-${e.id}`} e={e} selectedId={selectedId} bulkMode={bulkMode} bulkSelected={bulkSelected} onToggleSelect={onToggleSelect} onEventClick={onEventClick} />
+                  ))}
+                </div>
+              </div>
+            ))}
+        </div>
       </div>
     </div>
   );
@@ -2256,10 +2456,10 @@ function WeekView({currentDate,events,selectedId,today,onEventClick,onDayClick}:
 }
 
 /* ─── Event Panel ────────────────────────────────────────────────── */
-type FC={title:(v:string)=>void;allDay:(v:boolean)=>void;sd:(v:string)=>void;st:(v:string)=>void;ed:(v:string)=>void;et:(v:string)=>void;loc:(v:string)=>void;locDetail:(v:string)=>void;desc:(v:string)=>void;url:(v:string)=>void;reminders:(v:number[])=>void};
-function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay,editSD,editST,editED,editET,editLoc,editLocDetail,editDesc,editUrl,editReminders,comment,submitting,onEditStart,onEditCancel,onFieldChange,onSave,onCommentChange,onAddComment,onDelete,onClose,onDuplicate,calendars,editCalId,onEditCalChange}:{
+type FC={title:(v:string)=>void;allDay:(v:boolean)=>void;sd:(v:string)=>void;st:(v:string)=>void;ed:(v:string)=>void;et:(v:string)=>void;loc:(v:string)=>void;locDetail:(v:string)=>void;desc:(v:string)=>void;tags:(v:string)=>void;url:(v:string)=>void;reminders:(v:number[])=>void};
+function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay,editSD,editST,editED,editET,editLoc,editLocDetail,editDesc,editTags,editUrl,editReminders,comment,submitting,onEditStart,onEditCancel,onFieldChange,onSave,onCommentChange,onAddComment,onDelete,onClose,onDuplicate,calendars,editCalId,onEditCalChange}:{
   event:FlatEvent;calendar:Calendar|null;viewer:AuthUser|null;canEdit:boolean;
-  editMode:boolean;editTitle:string;editAllDay:boolean;editSD:string;editST:string;editED:string;editET:string;editLoc:string;editLocDetail:string;editDesc:string;editUrl:string;editReminders:number[];
+  editMode:boolean;editTitle:string;editAllDay:boolean;editSD:string;editST:string;editED:string;editET:string;editLoc:string;editLocDetail:string;editDesc:string;editTags:string;editUrl:string;editReminders:number[];
   comment:string;submitting:boolean;onEditStart:()=>void;onEditCancel:()=>void;onFieldChange:FC;
   onSave:()=>void;onCommentChange:(v:string)=>void;onAddComment:()=>void;onDelete:()=>void;onClose:()=>void;onDuplicate:()=>void;
   calendars:Calendar[];editCalId:string;onEditCalChange:(id:string)=>void;
@@ -2318,6 +2518,10 @@ function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay
               <input value={editUrl} onChange={e=>onFieldChange.url(e.target.value)} placeholder="링크 URL (선택)" className="flex-1 text-sm outline-none placeholder:text-gray-300"/>
             </div>
             <AutoTextarea value={editDesc} onChange={e=>onFieldChange.desc(e.target.value)} placeholder="메모" minRows={2} className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none placeholder:text-gray-300 focus:border-indigo-400"/>
+            <div>
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">태그 (쉼표로 구분, 검색·필터)</p>
+              <input value={editTags} onChange={e=>onFieldChange.tags(e.target.value)} placeholder="예) 업무, 출장, #긴급" className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none placeholder:text-gray-300 focus:border-indigo-400"/>
+            </div>
             {/* 알림 */}
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-2.5">
               <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-400">⏰ 알림</p>
@@ -2350,6 +2554,13 @@ function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay
               <h3 className={`text-lg font-bold leading-snug ${event.isDone?"line-through text-gray-400":"text-gray-900"}`}>{event.title}</h3>
             </div>
             {event.isTask&&<p className="mt-0.5 text-[11px] font-medium text-purple-500">☑ 할일</p>}
+            {parseEventTags(event.tags).length>0&&(
+              <div className="mt-2 flex flex-wrap gap-1">
+                {parseEventTags(event.tags).map(t=>(
+                  <span key={t} className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">#{t}</span>
+                ))}
+              </div>
+            )}
             <div className="mt-2.5 space-y-2">
               {event.allDay?(
                 <p className="flex items-center gap-2 text-sm text-gray-600"><svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>

@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import { resolveCalendarColor } from "@/lib/calendar-colors";
 
 type EventItem = {
   id: string; title: string; startAt: string; endAt?: string | null;
@@ -21,25 +22,8 @@ function fmtTime(iso: string) {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-const COLOR_MAP: Record<string, string> = {
-  "bg-emerald-500/20 text-emerald-300": "bg-emerald-100 text-emerald-700",
-  "bg-sky-500/20 text-sky-300": "bg-sky-100 text-sky-700",
-  "bg-violet-500/20 text-violet-300": "bg-violet-100 text-violet-700",
-  "bg-rose-500/20 text-rose-300": "bg-rose-100 text-rose-700",
-  "bg-amber-500/20 text-amber-300": "bg-amber-100 text-amber-700",
-  "bg-pink-500/20 text-pink-300": "bg-pink-100 text-pink-700",
-};
-const DOT_MAP: Record<string, string> = {
-  "bg-emerald-500/20 text-emerald-300": "bg-emerald-500",
-  "bg-sky-500/20 text-sky-300": "bg-sky-500",
-  "bg-violet-500/20 text-violet-300": "bg-violet-500",
-  "bg-rose-500/20 text-rose-300": "bg-rose-500",
-  "bg-amber-500/20 text-amber-300": "bg-amber-500",
-  "bg-pink-500/20 text-pink-300": "bg-pink-500",
-};
-
-function pillOf(color: string) { return COLOR_MAP[color] ?? "bg-indigo-100 text-indigo-700"; }
-function dotOf(color: string) { return DOT_MAP[color] ?? "bg-indigo-500"; }
+function pillOf(color: string) { return resolveCalendarColor(color).pill; }
+function dotOf(color: string) { return resolveCalendarColor(color).dot; }
 
 export default function MultiSharePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);

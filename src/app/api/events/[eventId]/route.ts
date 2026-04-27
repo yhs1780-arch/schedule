@@ -56,6 +56,7 @@ export async function PATCH(request: Request, context: Ctx) {
     calendarId?: string;
     isTask?: boolean;
     isDone?: boolean;
+    tags?: string | null;
   };
 
   const editable = await canEditEvent(user.id, user.role, eventId);
@@ -78,6 +79,7 @@ export async function PATCH(request: Request, context: Ctx) {
     calendarId?: string;
     isTask?: boolean;
     isDone?: boolean;
+    tags?: string | null;
   } = {};
 
   if (body.title?.trim()) updateData.title = body.title.trim();
@@ -91,6 +93,19 @@ export async function PATCH(request: Request, context: Ctx) {
   if ("reminderMinutes" in body) updateData.reminderMinutes = body.reminderMinutes?.trim() || null;
   if ("isTask" in body) updateData.isTask = body.isTask;
   if ("isDone" in body) updateData.isDone = body.isDone;
+  if ("tags" in body) {
+    if (body.tags === null || body.tags === "") updateData.tags = null;
+    else {
+      try {
+        const raw = body.tags;
+        const arr = typeof raw === "string" ? (raw.trim().startsWith("[") ? JSON.parse(raw) : raw.split(/[,\s#]+/).map(s => s.trim()).filter(Boolean)) : raw;
+        if (Array.isArray(arr)) {
+          const clean = [...new Set(arr.map((t: unknown) => String(t).trim()).filter(Boolean))].slice(0, 20);
+          updateData.tags = clean.length ? JSON.stringify(clean) : null;
+        }
+      } catch { /* ignore */ }
+    }
+  }
   if (body.calendarId) {
     const access = await prisma.calendarMember.findFirst({
       where: { calendarId: body.calendarId, userId: user.id },

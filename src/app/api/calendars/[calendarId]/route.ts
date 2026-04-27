@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { CAL_COLORS, isValidCalendarColorDb } from "@/lib/calendar-colors";
 
 type Ctx = { params: Promise<{ calendarId: string }> };
-
-const VALID_COLORS = [
-  "indigo","violet","emerald","rose","amber","sky","pink","teal","orange","fuchsia",
-];
 
 export async function PATCH(req: Request, ctx: Ctx) {
   const user = await getCurrentUser();
@@ -23,7 +20,9 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   const updateData: { name?: string; color?: string } = {};
   if (body.name?.trim()) updateData.name = body.name.trim();
-  if (body.color) updateData.color = body.color;
+  if (body.color !== undefined && body.color !== null && body.color !== "") {
+    updateData.color = isValidCalendarColorDb(body.color) ? body.color : CAL_COLORS[0].db;
+  }
 
   const calendar = await prisma.calendar.update({ where: { id: calendarId }, data: updateData });
   return NextResponse.json({ ok: true, calendar });

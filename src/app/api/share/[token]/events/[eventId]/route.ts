@@ -20,6 +20,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     title?: string; startAt?: string; endAt?: string | null;
     allDay?: boolean; location?: string | null; locationDetail?: string | null; description?: string | null;
     url?: string | null; guestName?: string;
+    tags?: string | null;
   };
 
   const updateData: Record<string, unknown> = {};
@@ -31,6 +32,17 @@ export async function PATCH(request: Request, ctx: Ctx) {
   if ("locationDetail" in body) updateData.locationDetail = body.locationDetail?.trim() || null;
   if ("description" in body) updateData.description = body.description?.trim() || null;
   if ("url" in body) updateData.url = body.url?.trim() || null;
+  if ("tags" in body) {
+    if (body.tags === null || body.tags === "") updateData.tags = null;
+    else {
+      try {
+        const raw = String(body.tags);
+        const arr = raw.trim().startsWith("[") ? (JSON.parse(raw) as string[]) : raw.split(/[,\s#]+/).map(s => s.trim()).filter(Boolean);
+        const clean = [...new Set(arr.map(t => String(t).trim()).filter(Boolean))].slice(0, 20);
+        updateData.tags = clean.length ? JSON.stringify(clean) : null;
+      } catch { /* ignore */ }
+    }
+  }
 
   if (Object.keys(updateData).length === 0) return NextResponse.json({ error: "변경 사항 없음" }, { status: 400 });
 

@@ -4,6 +4,7 @@ import type React from "react";
 import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { use } from "react";
+import { resolveCalendarColor } from "@/lib/calendar-colors";
 
 /* ─── AutoTextarea ───────────────────────────────────────────────── */
 function AutoTextarea({ value, onChange, placeholder, className, minRows = 1, onKeyDown, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number }) {
@@ -42,26 +43,8 @@ function buildGrid(y: number, m: number) {
   return rows;
 }
 
-const CAL_DOT: Record<string,string> = {
-  "bg-emerald-500/20 text-emerald-300":"bg-emerald-500",
-  "bg-sky-500/20 text-sky-300":"bg-sky-500",
-  "bg-violet-500/20 text-violet-300":"bg-violet-500",
-  "bg-rose-500/20 text-rose-300":"bg-rose-500",
-  "bg-amber-500/20 text-amber-300":"bg-amber-500",
-  "bg-indigo-500/20 text-indigo-300":"bg-indigo-500",
-  "bg-pink-500/20 text-pink-300":"bg-pink-500",
-};
-const CAL_PILL: Record<string,string> = {
-  "bg-emerald-500/20 text-emerald-300":"bg-emerald-100 text-emerald-700",
-  "bg-sky-500/20 text-sky-300":"bg-sky-100 text-sky-700",
-  "bg-violet-500/20 text-violet-300":"bg-violet-100 text-violet-700",
-  "bg-rose-500/20 text-rose-300":"bg-rose-100 text-rose-700",
-  "bg-amber-500/20 text-amber-300":"bg-amber-100 text-amber-700",
-  "bg-indigo-500/20 text-indigo-300":"bg-indigo-100 text-indigo-700",
-  "bg-pink-500/20 text-pink-300":"bg-pink-100 text-pink-700",
-};
-function dotOf(db:string){return CAL_DOT[db]??"bg-indigo-500";}
-function pillOf(db:string){return CAL_PILL[db]??"bg-indigo-100 text-indigo-700";}
+function dotOf(db: string) { return resolveCalendarColor(db).dot; }
+function pillOf(db: string) { return resolveCalendarColor(db).pill; }
 
 declare global { interface Window { daum?: {Postcode:new(o:{q?:string;oncomplete:(d:{roadAddress:string;jibunAddress:string})=>void;width?:string|number;height?:string|number})=>{open:()=>void;embed:(el:HTMLElement,opts?:{autoClose?:boolean})=>void}}; } }
 

@@ -49,10 +49,20 @@ export async function POST(request: Request, ctx: Ctx) {
   const body = (await request.json()) as {
     title?: string; startAt?: string; endAt?: string | null;
     allDay?: boolean; location?: string; locationDetail?: string; description?: string; url?: string; guestName?: string;
+    tags?: string | null;
   };
   const title = body.title?.trim();
   const startAt = body.startAt?.trim();
   if (!title || !startAt) return NextResponse.json({ error: "제목과 시작 날짜는 필수입니다." }, { status: 400 });
+
+  let eventTags: string | null = null;
+  if (body.tags) {
+    try {
+      const arr = body.tags.trim().startsWith("[") ? JSON.parse(body.tags) as unknown[] : String(body.tags).split(/[,\s#]+/).map(s => s.trim()).filter(Boolean);
+      const clean = [...new Set((arr as string[]).map(t => String(t).trim()).filter(Boolean))].slice(0, 20);
+      if (clean.length) eventTags = JSON.stringify(clean);
+    } catch { /* ignore */ }
+  }
 
   // 게스트용 시스템 유저 찾기 (없으면 캘린더 첫 번째 OWNER 사용)
   const owner = cal ? await prisma.calendarMember.findFirst({
@@ -71,6 +81,8 @@ export async function POST(request: Request, ctx: Ctx) {
       locationDetail: body.locationDetail?.trim() || null,
       description: body.description?.trim() || null,
       url: body.url?.trim() || null,
+      tags: eventTags,
+      guestName: (body.guestName ?? "비회원").trim() || null,
       createdById: owner.userId,
     },
     include: { createdBy: { select: { id: true, name: true } }, comments: true },
