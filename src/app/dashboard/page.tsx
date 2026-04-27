@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useNotificationScheduler, requestNotificationPermission } from "@/hooks/useNotificationScheduler";
 import { playSound, SOUND_LABELS, type SoundType } from "@/lib/notification-sound";
+import { parseNL, summarizeParsed, type ParsedEvent } from "@/lib/nlp";
 
 /* ─── AutoTextarea ───────────────────────────────────────────────── */
 function AutoTextarea({ value, onChange, placeholder, className, minRows = 1, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number }) {
@@ -360,6 +361,13 @@ export default function DashboardPage() {
   const [evCalId, setEvCalId] = useState("");
   const [evReminders, setEvReminders] = useState<number[]>([]);
   const [evIsTask, setEvIsTask] = useState(false);
+  /* 자연어 / 음성 입력 */
+  const [nlInput, setNlInput] = useState("");
+  const [nlParsed, setNlParsed] = useState<ParsedEvent | null>(null);
+  const [nlMode, setNlMode] = useState(false);
+  const [listening, setListening] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
   /* title autocomplete */
   const [titleSuggestions, setTitleSuggestions] = useState<EvSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -563,8 +571,55 @@ export default function DashboardPage() {
   function resetForm() {
     setEvTitle("");setEvLocation("");setEvLocDetail("");setEvDesc("");setEvUrl("");setEvAllDay(false);setEvHasEnd(false);
     setEvReminders([]);setShowSuggestions(false);setTitleSuggestions([]);setEvIsTask(false);
+    setNlInput("");setNlParsed(null);setNlMode(false);
     setEvStartDate(todayStr());setEvStartTime(nowTime());setEvEndDate(todayStr());
     const h=parseInt(nowTime())+1;setEvEndTime(`${pad(h<24?h:23)}:00`);
+  }
+
+  /* 자연어 파싱 후 폼 채우기 */
+  function applyNLParsed(p: ParsedEvent) {
+    setEvTitle(p.title);
+    setEvStartDate(p.date);
+    if (p.time) { setEvStartTime(p.time); setEvAllDay(false); }
+    else { setEvAllDay(true); }
+    if (p.endTime) { setEvHasEnd(true); setEvEndDate(p.endDate || p.date); setEvEndTime(p.endTime); }
+    if (p.location) setEvLocation(p.location);
+    setNlParsed(p);
+    setNlMode(false);
+  }
+
+  /* 음성 인식 시작/중지 */
+  function toggleVoice() {
+    if (typeof window === "undefined") return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SRClass = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SRClass) { alert("이 브라우저는 음성 인식을 지원하지 않아요.\nChrome 또는 Edge를 사용해주세요."); return; }
+    if (listening) {
+      recognitionRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sr = new SRClass() as any;
+    sr.lang = "ko-KR";
+    sr.continuous = false;
+    sr.interimResults = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sr.onresult = (e: any) => {
+      const transcript = e.results[0][0].transcript as string;
+      setNlInput(transcript);
+      const parsed = parseNL(transcript);
+      setNlParsed(parsed);
+      setListening(false);
+    };
+    sr.onerror = () => setListening(false);
+    sr.onend = () => setListening(false);
+    recognitionRef.current = sr;
+    sr.start();
+    setListening(true);
+    setNlMode(true);
+    setShowEventModal(true);
   }
 
   async function createEvent() {
@@ -971,11 +1026,19 @@ export default function DashboardPage() {
           </div>
 
           {/* create button - hidden on mobile (use FAB) */}
-          <button id="tour-create-event-btn" onClick={()=>openNewEvent()} className="hidden sm:flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 shadow-sm">
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
-            <span className="hidden md:inline">일정 만들기</span>
-            <span className="md:hidden">추가</span>
-          </button>
+          <div className="hidden sm:flex items-center gap-1.5">
+            <button onClick={()=>{openNewEvent();setTimeout(()=>{setNlMode(true);setListening(false);},100);}}
+              title="음성/자연어로 일정 입력"
+              className={`flex items-center gap-1 rounded-lg border px-2.5 py-2 text-sm font-semibold transition ${listening?"border-red-300 bg-red-50 text-red-600 animate-pulse":"border-purple-200 bg-purple-50 text-purple-600 hover:bg-purple-100"}`}>
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/></svg>
+              <span className="hidden lg:inline">자연어</span>
+            </button>
+            <button id="tour-create-event-btn" onClick={()=>openNewEvent()} className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 shadow-sm">
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
+              <span className="hidden md:inline">일정 만들기</span>
+              <span className="md:hidden">추가</span>
+            </button>
+          </div>
 
           {/* 알림 벨 */}
           <div className="relative">
@@ -1226,6 +1289,14 @@ export default function DashboardPage() {
       <button id="tour-fab" onClick={()=>openNewEvent()} className="fixed bottom-6 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-white shadow-2xl shadow-indigo-300 hover:bg-indigo-700 active:scale-95 transition lg:hidden">
         <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
       </button>
+      {/* 음성 입력 FAB - mobile */}
+      <button onClick={()=>{openNewEvent();setTimeout(()=>{setNlMode(true);toggleVoice();},200);}}
+        title="음성으로 일정 입력"
+        className={`fixed bottom-24 right-6 z-20 flex h-12 w-12 items-center justify-center rounded-full shadow-xl transition active:scale-95 lg:hidden ${listening?"bg-red-500 animate-pulse shadow-red-300":"bg-purple-600 shadow-purple-300 hover:bg-purple-700"}`}>
+        <svg className="h-5 w-5 text-white" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+        </svg>
+      </button>
 
       {/* DAY SUMMARY SHEET */}
       {daySummaryDate&&(
@@ -1235,11 +1306,68 @@ export default function DashboardPage() {
       {/* ── NEW EVENT MODAL ── */}
       {showEventModal&&(
         <Modal onClose={()=>{setShowEventModal(false);setShowSuggestions(false);}}>
-          <h2 className="mb-4 text-lg font-bold text-gray-900">새 일정 만들기</h2>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-bold text-gray-900">새 일정 만들기</h2>
+            <div className="flex items-center gap-1.5">
+              {/* 음성 인식 버튼 */}
+              <button onClick={toggleVoice} title="음성으로 일정 입력"
+                className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition active:scale-95 ${listening?"border-red-300 bg-red-50 text-red-600 animate-pulse":"border-indigo-200 bg-indigo-50 text-indigo-600 hover:bg-indigo-100"}`}>
+                <svg className="h-3.5 w-3.5" fill={listening?"currentColor":"none"} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+                </svg>
+                {listening ? "듣는 중…" : "음성 입력"}
+              </button>
+              {/* 자연어 입력 토글 */}
+              <button onClick={()=>{setNlMode(v=>!v);setNlInput("");setNlParsed(null);}}
+                className={`rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition ${nlMode?"border-purple-300 bg-purple-50 text-purple-700":"border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
+                ✨ 자연어
+              </button>
+            </div>
+          </div>
           <div className="space-y-3">
+            {/* 자연어 입력 박스 */}
+            {nlMode&&(
+              <div className="rounded-xl border-2 border-purple-200 bg-purple-50/60 p-3 space-y-2">
+                <p className="text-[10px] font-bold text-purple-500 uppercase tracking-wider">✨ 자연어로 일정 입력</p>
+                <input autoFocus value={nlInput}
+                  onChange={e=>{
+                    setNlInput(e.target.value);
+                    if(e.target.value.trim()) setNlParsed(parseNL(e.target.value));
+                    else setNlParsed(null);
+                  }}
+                  onKeyDown={e=>{if(e.key==="Enter"&&nlParsed){e.preventDefault();applyNLParsed(nlParsed);}}}
+                  placeholder="예) 내일 오후 3시 팀 회의 @카페"
+                  className="w-full rounded-lg border border-purple-200 bg-white px-3 py-2.5 text-sm outline-none placeholder:text-gray-300 focus:border-purple-400 focus:ring-2 focus:ring-purple-100"/>
+                {nlParsed&&(
+                  <div className="rounded-lg bg-white border border-purple-100 px-3 py-2">
+                    <p className="text-[11px] text-purple-500 font-semibold mb-1">인식 결과</p>
+                    <p className="text-sm font-bold text-gray-800 truncate">{nlParsed.title}</p>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{summarizeParsed(nlParsed)}</p>
+                    <div className="mt-2 flex gap-1.5">
+                      <button onClick={()=>applyNLParsed(nlParsed!)}
+                        className="flex-1 rounded-lg bg-purple-600 py-1.5 text-xs font-bold text-white hover:bg-purple-700 active:scale-95 transition">
+                        이대로 적용 →
+                      </button>
+                      <button onClick={()=>{setNlInput("");setNlParsed(null);}}
+                        className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-400 hover:bg-gray-50">
+                        지우기
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {["내일 오후 2시 점심 약속","다음주 월요일 오전 10시 회의","오늘 저녁 7시 운동 @헬스장","모레 생일 파티"].map(ex=>(
+                    <button key={ex} onClick={()=>{setNlInput(ex);setNlParsed(parseNL(ex));}}
+                      className="rounded-full border border-purple-200 bg-white px-2 py-0.5 text-[10px] text-purple-600 hover:bg-purple-50 transition">
+                      {ex}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* 제목 + 자동완성 드롭다운 */}
             <div className="relative">
-              <input autoFocus value={evTitle} onChange={e=>onEvTitleChange(e.target.value)}
+              <input autoFocus={!nlMode} value={evTitle} onChange={e=>onEvTitleChange(e.target.value)}
                 onKeyDown={e=>{if(e.key==="Enter"&&!showSuggestions)void createEvent();if(e.key==="Escape")setShowSuggestions(false);}}
                 onFocus={()=>{if(titleSuggestions.length>0)setShowSuggestions(true);}}
                 placeholder="일정 제목 *"
