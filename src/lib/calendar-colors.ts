@@ -1,7 +1,9 @@
 /**
- * 캘린더 색상 단일 소스. UI 피커·API 화이트리스트·게스트/공유 뷰가 모두 동일한 `db` 문자열을 사용합니다.
- * DB에 없는/옛날 값은 resolveCalendarColor에서 해시로 대체 색이 나갑니다.
+ * 캘린더 색: (1) 프리셋 Tailwind 토큰 (2) 사용자 지정 #RRGGBB
+ * DB `color` 필드에 그대로 저장됩니다.
  */
+import type { CSSProperties } from "react";
+
 export type CalColorEntry = { db: string; pill: string; dot: string; label: string };
 
 export const CAL_COLORS: CalColorEntry[] = [
@@ -47,16 +49,101 @@ export const CAL_COLORS: CalColorEntry[] = [
 
 const DB_SET = new Set(CAL_COLORS.map(c => c.db));
 
-export function isValidCalendarColorDb(db: string | undefined | null): boolean {
-  return Boolean(db && DB_SET.has(db));
+function relativeLuminance(r: number, g: number, b: number): number {
+  const [rs, gs, bs] = [r, g, b].map(v => {
+    const x = v / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
 }
 
-export function resolveCalendarColor(db: string | null | undefined): CalColorEntry {
-  const s = db?.trim() ?? "";
+/** #RRGGBB (uppercase) 또는 null */
+export function parseHexColor(input: string | null | undefined): string | null {
+  if (input == null) return null;
+  let t = input.trim();
+  if (!t) return null;
+  if (!t.startsWith("#")) t = `#${t}`;
+  if (/^#[0-9A-Fa-f]{3}$/.test(t)) {
+    const r = t[1]!, g = t[2]!, b = t[3]!;
+    t = `#${r}${r}${g}${g}${b}${b}`;
+  }
+  if (!/^#[0-9A-Fa-f]{6}$/i.test(t)) return null;
+  return `#${t.slice(1).toUpperCase()}`;
+}
+
+/** 프리셋 키 또는 정규 HEX */
+export function normalizeCalendarColor(input: string | null | undefined): string | null {
+  const s = input?.trim() ?? "";
+  if (!s) return null;
+  if (DB_SET.has(s)) return s;
+  return parseHexColor(s);
+}
+
+export function isStoredHexColor(s: string | null | undefined): boolean {
+  return parseHexColor(s ?? "") !== null;
+}
+
+export function isValidCalendarColor(input: string | null | undefined): boolean {
+  return normalizeCalendarColor(input) !== null;
+}
+
+/** @deprecated use isValidCalendarColor */
+export const isValidCalendarColorDb = isValidCalendarColor;
+
+export type ResolvedCalendarColor = {
+  label: string;
+  isHex: boolean;
+  pill: string;
+  dot: string;
+  pillStyle?: CSSProperties;
+  dotStyle?: CSSProperties;
+};
+
+function hexRgb(hex: string): { r: number; g: number; b: number } {
+  const h = hex.slice(1);
+  return {
+    r: parseInt(h.slice(0, 2), 16),
+    g: parseInt(h.slice(2, 4), 16),
+    b: parseInt(h.slice(4, 6), 16),
+  };
+}
+
+export function resolveCalendarColor(raw: string | null | undefined): ResolvedCalendarColor {
+  const s = raw?.trim() ?? "";
+  const hex = parseHexColor(s);
+  if (hex) {
+    const { r, g, b } = hexRgb(hex);
+    const L = relativeLuminance(r, g, b);
+    const fg = L > 0.55 ? "#0f172a" : "#f8fafc";
+    return {
+      label: "사용자 색",
+      isHex: true,
+      pill: "",
+      dot: "",
+      pillStyle: { backgroundColor: `rgba(${r},${g},${b},0.24)`, color: fg },
+      dotStyle: { backgroundColor: `rgb(${r},${g},${b})` },
+    };
+  }
   if (s && DB_SET.has(s)) {
-    return CAL_COLORS.find(c => c.db === s)!;
+    const c = CAL_COLORS.find(x => x.db === s)!;
+    return { label: c.label, isHex: false, pill: c.pill, dot: c.dot };
   }
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) >>> 0;
-  return CAL_COLORS[h % CAL_COLORS.length];
+  const c = CAL_COLORS[h % CAL_COLORS.length]!;
+  return { label: c.label, isHex: false, pill: c.pill, dot: c.dot };
+}
+
+export function calDotParts(col: ResolvedCalendarColor, sizeClass: string): { className: string; style?: CSSProperties } {
+  return {
+    className: `${sizeClass} ${col.isHex ? "" : col.dot}`.trim(),
+    style: col.dotStyle,
+  };
+}
+
+export function calPillParts(col: ResolvedCalendarColor, extraClass: string): { className: string; style?: CSSProperties } {
+  return {
+    className: `${extraClass} ${col.isHex ? "" : col.pill}`.trim(),
+    style: col.pillStyle,
+  };
 }

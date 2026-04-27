@@ -7,7 +7,14 @@ import { useRouter } from "next/navigation";
 import { useNotificationScheduler, requestNotificationPermission } from "@/hooks/useNotificationScheduler";
 import { playSound, SOUND_LABELS, type SoundType } from "@/lib/notification-sound";
 import { parseNL, summarizeParsed, type ParsedEvent } from "@/lib/nlp";
-import { CAL_COLORS, resolveCalendarColor as colOf } from "@/lib/calendar-colors";
+import {
+  CAL_COLORS,
+  resolveCalendarColor as colOf,
+  calDotParts,
+  calPillParts,
+  normalizeCalendarColor,
+  isStoredHexColor,
+} from "@/lib/calendar-colors";
 
 /* ─── AutoTextarea ───────────────────────────────────────────────── */
 function AutoTextarea({ value, onChange, placeholder, className, minRows = 1, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number }) {
@@ -684,7 +691,7 @@ export default function DashboardPage() {
 
   async function createCalendar() {
     if(!calName.trim()) return;
-    const name=calName.trim(),color=calColor,tempId=`_tc_${Date.now()}`;
+    const name=calName.trim(),color=normalizeCalendarColor(calColor)??CAL_COLORS[0].db,tempId=`_tc_${Date.now()}`;
     const tmp:Calendar={id:tempId,key:tempId,name,color,members:[{role:"OWNER",user:{id:viewer?.id??"",slug:"",name:viewer?.name??"",role:"MEMBER"}}],events:[]};
     setShowCalModal(false);setCalName("");setCalendars(p=>[...p,tmp]);setEvCalId(tempId);
     await fetch("/api/calendars",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,color})});
@@ -697,9 +704,10 @@ export default function DashboardPage() {
   }
   async function saveEditCal() {
     if (!editingCal || !editCalName.trim()) return;
-    setCalendars(p => p.map(c => c.id === editingCal.id ? { ...c, name: editCalName.trim(), color: editCalColor } : c));
+    const color = normalizeCalendarColor(editCalColor) ?? CAL_COLORS[0].db;
+    setCalendars(p => p.map(c => c.id === editingCal.id ? { ...c, name: editCalName.trim(), color } : c));
     setEditingCal(null);
-    await fetch(`/api/calendars/${editingCal.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: editCalName.trim(), color: editCalColor }) });
+    await fetch(`/api/calendars/${editingCal.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: editCalName.trim(), color }) });
   }
   async function deleteCalendar(calId: string) {
     setCalendars(p => p.filter(c => c.id !== calId));
@@ -1231,6 +1239,7 @@ export default function DashboardPage() {
                 {calendars.map((c,ci)=>{
                   const col=colOf(c.color),hidden=hiddenIds.has(c.id),isOwner=c.members.some(m=>m.user.id===viewer?.id&&m.role==="OWNER");
                   const multiChecked=calMultiSelected.has(c.id);
+                  const sideDot=calDotParts(col,"block h-3 w-3 rounded-full");
                   return(
                     <div key={c.id} id={ci===0?"tour-invite-hint":undefined} className={`group flex items-center gap-1 rounded-xl px-2 py-2.5 transition ${hidden&&!calMultiSelect?"opacity-40":"hover:bg-gray-50"} ${calMultiSelect&&multiChecked?"bg-indigo-50":""}`}>
                       {/* 다중선택 체크박스 */}
@@ -1242,7 +1251,11 @@ export default function DashboardPage() {
                       ):(
                         <button onClick={()=>setHiddenIds(p=>{const n=new Set(p);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;})}
                           className="flex-shrink-0 cursor-pointer">
-                          <span className={`block h-3 w-3 rounded-full ${hidden?"bg-gray-300":col.dot}`}/>
+                          {hidden?(
+                            <span className="block h-3 w-3 rounded-full bg-gray-300"/>
+                          ):(
+                            <span className={sideDot.className} style={sideDot.style}/>
+                          )}
                         </button>
                       )}
                       <button onClick={()=>{if(!calMultiSelect){setHiddenIds(p=>{const n=new Set(p);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;});}else{setCalMultiSelected(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;});}}}
@@ -1269,7 +1282,7 @@ export default function DashboardPage() {
                 })}
               </div>
             )}
-            <button id="tour-create-calendar" onClick={()=>setShowCalModal(true)} className="mt-3 flex w-full items-center gap-2 rounded-xl px-2 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-indigo-600 transition">
+            <button id="tour-create-calendar" onClick={()=>{setCalColor(CAL_COLORS[1].db);setShowCalModal(true);}} className="mt-3 flex w-full items-center gap-2 rounded-xl px-2 py-2.5 text-sm text-gray-500 hover:bg-gray-50 hover:text-indigo-600 transition">
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
               새 캘린더 만들기
             </button>
@@ -1553,20 +1566,20 @@ export default function DashboardPage() {
               <div>
                 <p className="mb-2 text-xs font-semibold text-gray-400">캘린더 선택</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {calendars.map(c=>{const col=colOf(c.color);return(
+                  {calendars.map(c=>{const col=colOf(c.color);const d=calDotParts(col,"h-2 w-2 rounded-full");return(
                     <button key={c.id} onClick={()=>setEvCalId(c.id)} className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition active:scale-95 ${evCalId===c.id?"border-indigo-400 bg-indigo-50 text-indigo-700":"border-gray-200 text-gray-600"}`}>
-                      <span className={`h-2 w-2 rounded-full ${col.dot}`}/>{c.name}
+                      <span className={d.className} style={d.style}/>{c.name}
                     </button>
                   );})}
                 </div>
               </div>
             )}
-            {calendars.length===1&&(
+            {calendars.length===1&&(()=>{const d=calDotParts(colOf(calendars[0].color),"h-2.5 w-2.5 rounded-full");return(
               <div className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${colOf(calendars[0].color).dot}`}/>
+                <span className={d.className} style={d.style}/>
                 <span className="text-sm text-gray-600">{calendars[0].name}</span>
               </div>
-            )}
+            );})()}
 
             {/* URL + 메모 */}
             <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2.5 focus-within:border-indigo-300">
@@ -1688,12 +1701,23 @@ export default function DashboardPage() {
               <div className="max-h-52 overflow-y-auto overscroll-contain rounded-xl border border-gray-100 bg-gray-50/50 p-2">
                 <div className="flex flex-wrap gap-2">
                   {CAL_COLORS.map(c=>(
-                    <button key={c.db} type="button" onClick={()=>setCalColor(c.db)} className={`flex flex-col items-center gap-1 rounded-xl p-1.5 transition ${calColor===c.db?"bg-white ring-2 ring-offset-1 ring-indigo-400":"hover:bg-white"}`}>
+                    <button key={c.db} type="button" onClick={()=>setCalColor(c.db)} className={`flex flex-col items-center gap-1 rounded-xl p-1.5 transition ${!isStoredHexColor(calColor)&&calColor===c.db?"bg-white ring-2 ring-offset-1 ring-indigo-400":"hover:bg-white"}`}>
                       <span className={`h-6 w-6 rounded-full ${c.dot}`}/><span className="max-w-[52px] truncate text-[9px] text-gray-500">{c.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
+            </div>
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
+              <p className="mb-2 text-xs font-semibold text-gray-700">직접 색 지정 (HEX)</p>
+              <p className="mb-2 text-[10px] text-gray-500">팔레트에 없는 톤을 쓰려면 아래에서 고르세요. 캘린더·일정 구분이 더 쉬워요.</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <input type="color" aria-label="캘린더 색 고르기" className="h-11 w-16 cursor-pointer rounded-lg border border-gray-200 bg-white" value={isStoredHexColor(calColor)?calColor:"#6366F1"} onChange={e=>{const n=normalizeCalendarColor(e.target.value);if(n)setCalColor(n);}} />
+                <div className="min-w-0 flex-1">
+                  <input value={isStoredHexColor(calColor)?calColor:""} onChange={e=>{const n=normalizeCalendarColor(e.target.value);if(n)setCalColor(n);}} placeholder="#7C3AED 붙여넣기" className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-2 font-mono text-xs outline-none focus:border-indigo-400" />
+                </div>
+              </div>
+              {isStoredHexColor(calColor)&&<p className="mt-2 text-[10px] font-mono text-indigo-600">적용: {calColor} (사용자 지정)</p>}
             </div>
             <p className="rounded-lg bg-indigo-50 p-2.5 text-xs text-indigo-600">💡 만들고 나서 멤버를 이메일로 초대할 수 있어요.</p>
           </div>
@@ -1717,12 +1741,22 @@ export default function DashboardPage() {
               <div className="max-h-52 overflow-y-auto overscroll-contain rounded-xl border border-gray-100 bg-gray-50/50 p-2">
                 <div className="flex flex-wrap gap-2">
                   {CAL_COLORS.map(c=>(
-                    <button key={c.db} type="button" onClick={()=>setEditCalColor(c.db)} className={`flex flex-col items-center gap-1 rounded-xl p-1.5 transition ${editCalColor===c.db?"bg-white ring-2 ring-offset-1 ring-indigo-400":"hover:bg-white"}`}>
+                    <button key={c.db} type="button" onClick={()=>setEditCalColor(c.db)} className={`flex flex-col items-center gap-1 rounded-xl p-1.5 transition ${!isStoredHexColor(editCalColor)&&editCalColor===c.db?"bg-white ring-2 ring-offset-1 ring-indigo-400":"hover:bg-white"}`}>
                       <span className={`h-6 w-6 rounded-full ${c.dot}`}/><span className="max-w-[52px] truncate text-[9px] text-gray-500">{c.label}</span>
                     </button>
                   ))}
                 </div>
               </div>
+            </div>
+            <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
+              <p className="mb-2 text-xs font-semibold text-gray-700">직접 색 지정 (HEX)</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <input type="color" aria-label="캘린더 색 고르기" className="h-11 w-16 cursor-pointer rounded-lg border border-gray-200 bg-white" value={isStoredHexColor(editCalColor)?editCalColor:"#6366F1"} onChange={e=>{const n=normalizeCalendarColor(e.target.value);if(n)setEditCalColor(n);}} />
+                <div className="min-w-0 flex-1">
+                  <input value={isStoredHexColor(editCalColor)?editCalColor:""} onChange={e=>{const n=normalizeCalendarColor(e.target.value);if(n)setEditCalColor(n);}} placeholder="#0EA5E9 붙여넣기" className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-2 font-mono text-xs outline-none focus:border-indigo-400" />
+                </div>
+              </div>
+              {isStoredHexColor(editCalColor)&&<p className="mt-2 text-[10px] font-mono text-indigo-600">적용: {editCalColor}</p>}
             </div>
             {/* 삭제 확인 */}
             {!confirmDeleteCal?(
@@ -1770,7 +1804,7 @@ export default function DashboardPage() {
       {shareCalId&&shareCal&&(
         <Modal onClose={()=>setShareCalId(null)}>
           <div className="mb-4 flex items-center gap-3">
-            <span className={`h-4 w-4 rounded-full ${colOf(shareCal.color).dot}`}/>
+            {(()=>{const d=calDotParts(colOf(shareCal.color),"h-4 w-4 rounded-full");return <span className={d.className} style={d.style}/>;})()}
             <h2 className="text-lg font-bold text-gray-900">{shareCal.name} 멤버 관리</h2>
           </div>
           <div className="mb-4">
@@ -1868,13 +1902,13 @@ export default function DashboardPage() {
           <h2 className="mb-3 text-lg font-bold text-gray-900">🔗 여러 캘린더 동시 공유</h2>
           <div className="mb-3 space-y-1">
             <p className="text-xs font-semibold text-gray-500">선택된 캘린더 ({calMultiSelected.size}개)</p>
-            {calendars.filter(c=>calMultiSelected.has(c.id)).map(c=>(
+            {calendars.filter(c=>calMultiSelected.has(c.id)).map(c=>{const d=calDotParts(colOf(c.color),"h-2.5 w-2.5 rounded-full");return(
               <div key={c.id} className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
-                <span className={`h-2.5 w-2.5 rounded-full ${colOf(c.color).dot}`}/>
+                <span className={d.className} style={d.style}/>
                 <span className="text-sm font-medium text-gray-700">{c.name}</span>
                 <span className="text-[10px] text-gray-400">{c.events.length}개 일정</span>
               </div>
-            ))}
+            );})}
           </div>
           <div className="mb-3 flex gap-2 items-center">
             <span className="text-xs font-semibold text-gray-500 flex-shrink-0">공유 권한:</span>
@@ -1982,15 +2016,17 @@ function DaySummarySheet({dateStr,events,onEventClick,onNewEvent,onClose}:{
         <div className="max-h-60 overflow-y-auto px-4 space-y-2 pb-2">
           {dayEvs.length===0?<p className="py-4 text-center text-sm text-gray-400">이 날 일정이 없습니다.</p>:dayEvs.map(e=>{
             const col=colOf(e.calendarColor);
+            const dotP=calDotParts(col,"h-2.5 w-2.5 flex-shrink-0 rounded-full");
+            const nameP=calPillParts(col,"rounded-full px-2 py-0.5 text-[10px] font-medium");
             return(
               <button key={e.id} onClick={()=>onEventClick(e.id)}
                 className={`w-full flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition active:scale-[0.98] border-gray-200 hover:border-indigo-200 hover:bg-indigo-50`}>
-                <span className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${col.dot}`}/>
+                <span className={dotP.className} style={dotP.style}/>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900 truncate">{e.title}</p>
                   <p className="text-xs text-gray-400">{e.allDay?"하루 종일":fmtTime(e.startAt)}{e.location?` · 📍${e.location}`:""}</p>
                 </div>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${col.pill}`}>{e.calendarName}</span>
+                <span className={nameP.className} style={nameP.style}>{e.calendarName}</span>
               </button>
             );
           })}
@@ -2060,10 +2096,10 @@ function MonthView({year,month,today,events,selectedId,onDayClick,onEventClick,o
             <div key={ri} style={{height:rowH}} className="flex flex-col">
               {bars.length>0&&(
                 <div className="grid grid-cols-7 flex-shrink-0 pt-0.5 gap-y-0.5">
-                  {bars.map(bar=>{const col=colOf(bar.calColor);return(
-                    <div key={bar.id} style={{gridColumn:`${bar.startCol+1}/${bar.endCol+2}`}} onClick={()=>onEventClick(bar.eventId)}
+                  {bars.map(bar=>{const col=colOf(bar.calColor);const pp=calPillParts(col,"cursor-grab truncate rounded px-1.5 py-0.5 text-[10px] font-medium mx-0.5 hover:opacity-80 active:opacity-60");return(
+                    <div key={bar.id} style={{gridColumn:`${bar.startCol+1}/${bar.endCol+2}`,...pp.style}} onClick={()=>onEventClick(bar.eventId)}
                       draggable onDragStart={e=>{e.stopPropagation();onDragStart?.(bar.eventId);}}
-                      className={`cursor-grab truncate rounded px-1.5 py-0.5 text-[10px] font-medium mx-0.5 hover:opacity-80 active:opacity-60 ${col.pill} ${draggedId===bar.eventId?"opacity-40":""}`}>
+                      className={`${pp.className} ${draggedId===bar.eventId?"opacity-40":""}`}>
                       {bar.cont?`↩ ${bar.title}`:bar.title}
                     </div>
                   );})}
@@ -2090,12 +2126,13 @@ function MonthView({year,month,today,events,selectedId,onDayClick,onEventClick,o
                             <span className={`inline-flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-full text-xs sm:text-sm font-semibold ${isToday?"bg-indigo-600 text-white font-bold":ci===0?"text-red-400":ci===6?"text-blue-400":"text-gray-700"}`}>{day}</span>
                           </div>
                           <div className="mt-0.5 space-y-0.5">
-                            {dayEvs.slice(0,2).map(e=>{const col=colOf(e.calendarColor);return(
+                            {dayEvs.slice(0,2).map(e=>{const col=colOf(e.calendarColor);const pp=calPillParts(col,"w-full truncate rounded px-1 sm:px-1.5 py-0.5 text-left text-[10px] sm:text-[11px] font-medium transition hover:opacity-80 active:opacity-60 cursor-grab");return(
                               <button key={e.id}
                                 draggable
                                 onDragStart={ev=>{ev.stopPropagation();onDragStart?.(e.id);}}
                                 onClick={ev=>{ev.stopPropagation();onEventClick(e.id);}}
-                                className={`w-full truncate rounded px-1 sm:px-1.5 py-0.5 text-left text-[10px] sm:text-[11px] font-medium transition hover:opacity-80 active:opacity-60 cursor-grab ${col.pill} ${selectedId===e.id?"ring-2 ring-indigo-400 ring-offset-1":""} ${draggedId===e.id?"opacity-30":""}`}>
+                                style={pp.style}
+                                className={`${pp.className} ${selectedId===e.id?"ring-2 ring-indigo-400 ring-offset-1":""} ${draggedId===e.id?"opacity-30":""}`}>
                                 {e.title}
                               </button>
                             );})}
@@ -2121,6 +2158,8 @@ function ListEventRow({ e, selectedId, bulkMode, bulkSelected, onToggleSelect, o
   onToggleSelect?: (id: string) => void; onEventClick: (id: string) => void;
 }) {
   const col = colOf(e.calendarColor);
+  const listDot = calDotParts(col, "h-3 w-3 flex-shrink-0 rounded-full");
+  const listNameP = calPillParts(col, "rounded px-1.5 py-0.5");
   const isMulti = e.endAt && !sameDay(new Date(e.startAt), new Date(e.endAt));
   const isSelected = bulkSelected?.has(e.id) ?? false;
   const handleClick = () => { if (bulkMode) onToggleSelect?.(e.id); else onEventClick(e.id); };
@@ -2140,7 +2179,7 @@ function ListEventRow({ e, selectedId, bulkMode, bulkSelected, onToggleSelect, o
       )}
       <button type="button" onClick={handleClick}
         className="flex flex-1 items-center gap-3 p-4 text-left hover:bg-gray-50/50 transition rounded-xl active:scale-[0.99]">
-        <span className={`h-3 w-3 flex-shrink-0 rounded-full ${col.dot}`} />
+        <span className={listDot.className} style={listDot.style} />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-gray-900 truncate">{e.title}</p>
           {tags.length > 0 && (
@@ -2154,7 +2193,7 @@ function ListEventRow({ e, selectedId, bulkMode, bulkSelected, onToggleSelect, o
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-gray-400">
             {e.allDay ? <span>하루 종일</span> : <span>{fmtTime(e.startAt)}{e.endAt && !isMulti ? ` ~ ${fmtTime(e.endAt)}` : ""}</span>}
             {isMulti && e.endAt && <span className="text-indigo-500">~ {fmtDate(e.endAt)}</span>}
-            <span className={`rounded px-1.5 py-0.5 ${col.pill}`}>{e.calendarName}</span>
+            <span className={listNameP.className} style={listNameP.style}>{e.calendarName}</span>
             {e.location && <span className="truncate max-w-[140px]">📍 {e.location}</span>}
           </p>
         </div>
@@ -2437,9 +2476,11 @@ function WeekView({currentDate,events,selectedId,today,onEventClick,onDayClick}:
               <div key={i} className={`p-1.5 space-y-1 min-h-[120px] ${isToday?"bg-indigo-50/30":""}`}>
                 {dayEvs.map(e=>{
                   const col=colOf(e.calendarColor);
+                  const pp=calPillParts(col,"w-full rounded-lg px-1.5 py-1 text-left text-[10px] font-medium leading-snug transition hover:opacity-80 active:scale-95");
                   return(
                     <button key={e.id} onClick={()=>onEventClick(e.id)}
-                      className={`w-full rounded-lg px-1.5 py-1 text-left text-[10px] font-medium leading-snug transition hover:opacity-80 active:scale-95 ${col.pill} ${selectedId===e.id?"ring-2 ring-indigo-400 ring-offset-1":""} ${e.isTask?"border border-dashed":""}`}>
+                      style={pp.style}
+                      className={`${pp.className} ${selectedId===e.id?"ring-2 ring-indigo-400 ring-offset-1":""} ${e.isTask?"border border-dashed":""}`}>
                       <p className="truncate">{e.isTask?"☑ ":""}{e.title}</p>
                       {!e.allDay&&<p className="text-[9px] opacity-70">{fmtTime(e.startAt)}</p>}
                     </button>
@@ -2464,7 +2505,10 @@ function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay
   onSave:()=>void;onCommentChange:(v:string)=>void;onAddComment:()=>void;onDelete:()=>void;onClose:()=>void;onDuplicate:()=>void;
   calendars:Calendar[];editCalId:string;onEditCalChange:(id:string)=>void;
 }){
-  const col=colOf(event.calendarColor),isMulti=event.endAt&&!sameDay(new Date(event.startAt),new Date(event.endAt));
+  const col=colOf(event.calendarColor);
+  const panelDot=calDotParts(col,"h-2.5 w-2.5 rounded-full");
+  const panelPill=calPillParts(col,"rounded-md px-2 py-0.5 text-xs font-medium");
+  const isMulti=event.endAt&&!sameDay(new Date(event.startAt),new Date(event.endAt));
   return(
     <div>
       <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
@@ -2499,10 +2543,10 @@ function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay
               <div>
                 <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">캘린더 이동</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {calendars.map(c=>{const col=colOf(c.color);return(
+                  {calendars.map(c=>{const ccol=colOf(c.color);const d=calDotParts(ccol,"h-2 w-2 rounded-full");return(
                     <button key={c.id} type="button" onClick={()=>onEditCalChange(c.id)}
                       className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${(editCalId||event.calendarId)===c.id?"border-indigo-400 bg-indigo-50 text-indigo-700":"border-gray-200 text-gray-500"}`}>
-                      <span className={`h-2 w-2 rounded-full ${col.dot}`}/>{c.name}
+                      <span className={d.className} style={d.style}/>{c.name}
                     </button>
                   );})}
                 </div>
@@ -2574,8 +2618,8 @@ function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay
             </div>
             {event.description&&<div className="mt-3 rounded-xl bg-gray-50 px-3 py-2.5"><p className="text-xs leading-relaxed text-gray-500 whitespace-pre-wrap">{event.description}</p></div>}
             <div className="mt-3 flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`}/>
-              <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${col.pill}`}>{event.calendarName}</span>
+              <span className={panelDot.className} style={panelDot.style}/>
+              <span className={panelPill.className} style={panelPill.style}>{event.calendarName}</span>
             </div>
             {calendar&&calendar.members.length>1&&(
               <div className="mt-3">

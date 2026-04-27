@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { resolveCalendarColor } from "@/lib/calendar-colors";
+import { calDotParts, calPillParts, resolveCalendarColor } from "@/lib/calendar-colors";
 
 type EventItem = {
   id: string; title: string; startAt: string; endAt?: string | null;
@@ -21,9 +21,6 @@ function fmtTime(iso: string) {
   const d = new Date(iso);
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
-
-function pillOf(color: string) { return resolveCalendarColor(color).pill; }
-function dotOf(color: string) { return resolveCalendarColor(color).dot; }
 
 export default function MultiSharePage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -106,13 +103,16 @@ export default function MultiSharePage({ params }: { params: Promise<{ token: st
           </button>
           {calendars.map(c => {
             const active = selectedCals.has(c.id);
+            const ccol = resolveCalendarColor(c.color);
+            const pp = calPillParts(ccol, "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition");
+            const d = calDotParts(ccol, "h-2 w-2 flex-shrink-0 rounded-full");
             return (
               <button key={c.id} onClick={() => setSelectedCals(prev => {
                 const next = new Set(prev);
                 if (active) next.delete(c.id); else next.add(c.id);
                 return next;
-              })} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${active ? `${pillOf(c.color)} border-transparent` : "border-gray-200 bg-white text-gray-400"}`}>
-                <span className={`h-2 w-2 rounded-full ${dotOf(c.color)}`}/>
+              })} className={active ? `${pp.className} border-transparent` : "flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-400 transition"} style={active ? pp.style : undefined}>
+                {active ? <span className={d.className} style={d.style}/> : <span className="h-2 w-2 flex-shrink-0 rounded-full bg-gray-300" />}
                 {c.name}
               </button>
             );
@@ -127,11 +127,14 @@ export default function MultiSharePage({ params }: { params: Promise<{ token: st
               <div key={date}>
                 <p className="mb-2 text-[11px] font-bold text-gray-400 uppercase">{fmtDate(date + "T00:00:00")}</p>
                 <div className="space-y-2">
-                  {evs.map(e => (
+                  {evs.map(e => {
+                    const col = resolveCalendarColor(e.calColor);
+                    const d = calDotParts(col, "mt-0.5 h-2.5 w-2.5 flex-shrink-0 rounded-full");
+                    return (
                     <button key={e.id} onClick={() => setSelectedId(selectedId === e.id ? null : e.id)}
                       className={`w-full rounded-xl border bg-white p-3 text-left shadow-sm transition hover:shadow-md active:scale-[0.99] ${selectedId === e.id ? "border-indigo-300 shadow-indigo-100" : "border-gray-100"}`}>
                       <div className="flex items-start gap-2.5">
-                        <span className={`mt-0.5 h-2.5 w-2.5 flex-shrink-0 rounded-full ${dotOf(e.calColor)}`}/>
+                        <span className={d.className} style={d.style}/>
                         <div className="flex-1 min-w-0">
                           <p className={`text-sm font-semibold ${e.isDone ? "line-through text-gray-400" : "text-gray-800"}`}>{e.title}</p>
                           <p className="text-[11px] text-gray-400">{e.allDay ? "하루 종일" : fmtTime(e.startAt)}{e.endAt ? ` ~ ${fmtTime(e.endAt)}` : ""} · {e.calName}</p>
@@ -145,7 +148,8 @@ export default function MultiSharePage({ params }: { params: Promise<{ token: st
                         </div>
                       )}
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

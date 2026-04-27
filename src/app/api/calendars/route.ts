@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { CAL_COLORS, isValidCalendarColorDb } from "@/lib/calendar-colors";
+import { CAL_COLORS, normalizeCalendarColor } from "@/lib/calendar-colors";
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   const name = body.name?.trim();
   if (!name) return NextResponse.json({ error: "name required" }, { status: 400 });
 
-  const color = isValidCalendarColorDb(body.color ?? null) ? body.color! : CAL_COLORS[0].db;
+  const color = normalizeCalendarColor(body.color ?? "") ?? CAL_COLORS[0].db;
   const key = `cal-${user.id.slice(0, 8)}-${Date.now()}`;
 
   const calendar = await prisma.calendar.create({ data: { key, name, color } });

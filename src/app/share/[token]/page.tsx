@@ -4,7 +4,7 @@ import type React from "react";
 import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { use } from "react";
-import { resolveCalendarColor } from "@/lib/calendar-colors";
+import { calDotParts, calPillParts, resolveCalendarColor } from "@/lib/calendar-colors";
 
 /* ─── AutoTextarea ───────────────────────────────────────────────── */
 function AutoTextarea({ value, onChange, placeholder, className, minRows = 1, onKeyDown, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number }) {
@@ -43,8 +43,6 @@ function buildGrid(y: number, m: number) {
   return rows;
 }
 
-function dotOf(db: string) { return resolveCalendarColor(db).dot; }
-function pillOf(db: string) { return resolveCalendarColor(db).pill; }
 
 declare global { interface Window { daum?: {Postcode:new(o:{q?:string;oncomplete:(d:{roadAddress:string;jibunAddress:string})=>void;width?:string|number;height?:string|number})=>{open:()=>void;embed:(el:HTMLElement,opts?:{autoClose?:boolean})=>void}}; } }
 
@@ -356,7 +354,9 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
     </div>
   );
 
-  const dot=dotOf(cal.color), pill=pillOf(cal.color);
+  const _calCol=resolveCalendarColor(cal.color);
+  const _headDot=calDotParts(_calCol,"h-2 w-2 rounded-full flex-shrink-0");
+  const _headPill=calPillParts(_calCol,"flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold truncate max-w-[120px] sm:max-w-none");
   const todayEvsCount=filteredEvents.filter(e=>sameDay(new Date(e.startAt),today)).length;
 
   return(
@@ -371,8 +371,8 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
       <header id="share-header" className="flex h-14 flex-shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 shadow-sm z-10">
         <Link href="/" className="text-sm font-extrabold text-indigo-600 flex-shrink-0">SyncNest</Link>
         <span className="text-gray-200">|</span>
-        <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold truncate max-w-[120px] sm:max-w-none ${pill}`}>
-          <span className={`h-2 w-2 rounded-full flex-shrink-0 ${dot}`}/>{cal.name}
+        <span className={_headPill.className} style={_headPill.style}>
+          <span className={_headDot.className} style={_headDot.style}/>{cal.name}
         </span>
         {canEdit&&<span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 flex-shrink-0">편집 가능</span>}
         {todayEvsCount>0&&<span className="hidden sm:inline rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">오늘 {todayEvsCount}개</span>}
