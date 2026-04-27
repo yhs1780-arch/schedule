@@ -62,6 +62,7 @@ export async function GET() {
             orderBy: { createdAt: "asc" },
           },
           createdBy: { select: { id: true, name: true } },
+          reactions: { orderBy: { createdAt: "asc" } },
         },
       },
     },
@@ -81,7 +82,11 @@ export async function POST(request: Request) {
     endAt?: string;
     allDay?: boolean;
     location?: string;
+    locationDetail?: string;
     description?: string;
+    url?: string;
+    reminderMinutes?: string;
+    isTask?: boolean;
   };
   const calendarId = body.calendarId?.trim();
   const title = body.title?.trim();
@@ -101,7 +106,11 @@ export async function POST(request: Request) {
   const allDay = body.allDay ?? false;
   const endAt = body.endAt?.trim() ? new Date(body.endAt.trim()) : null;
   const location = body.location?.trim() || null;
+  const locationDetail = body.locationDetail?.trim() || null;
   const description = body.description?.trim() || null;
+  const url = body.url?.trim() || null;
+  const reminderMinutes = body.reminderMinutes?.trim() || null;
+  const isTask = body.isTask ?? false;
 
   const event = await prisma.event.create({
     data: {
@@ -111,7 +120,11 @@ export async function POST(request: Request) {
       endAt,
       allDay,
       location,
+      locationDetail,
       description,
+      url,
+      reminderMinutes,
+      isTask,
       createdById: user.id,
     },
   });

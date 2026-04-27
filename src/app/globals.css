@@ -1,4 +1,67 @@
 @import "tailwindcss";
+@import "driver.js/dist/driver.css";
+
+/* ── Driver.js 투어 커스텀 스타일 ─────────────────────────────── */
+.driver-popover {
+  font-family: var(--font-geist-sans), 'Apple SD Gothic Neo', 'Noto Sans KR', Arial, sans-serif !important;
+  border-radius: 16px !important;
+  padding: 20px !important;
+  box-shadow: 0 20px 60px rgba(0,0,0,.18) !important;
+  max-width: 300px !important;
+  border: 1px solid #e0e7ff !important;
+}
+.driver-popover-title {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: #1e1b4b !important;
+  margin-bottom: 8px !important;
+}
+.driver-popover-description {
+  font-size: 13px !important;
+  line-height: 1.65 !important;
+  color: #4b5563 !important;
+  white-space: pre-line !important;
+}
+.driver-popover-progress-text {
+  font-size: 11px !important;
+  color: #a5b4fc !important;
+  font-weight: 600 !important;
+}
+.driver-popover-footer {
+  margin-top: 16px !important;
+  gap: 8px !important;
+}
+.driver-popover-prev-btn,
+.driver-popover-next-btn,
+.driver-popover-close-btn {
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  padding: 8px 16px !important;
+  transition: all .15s !important;
+}
+.driver-popover-next-btn {
+  background: #4f46e5 !important;
+  color: #fff !important;
+  border: none !important;
+}
+.driver-popover-next-btn:hover {
+  background: #4338ca !important;
+}
+.driver-popover-prev-btn {
+  border: 1px solid #e5e7eb !important;
+  background: #fff !important;
+  color: #6b7280 !important;
+}
+.driver-popover-close-btn {
+  color: #9ca3af !important;
+  font-size: 16px !important;
+  background: transparent !important;
+  border: none !important;
+}
+.driver-overlay {
+  background: rgba(0,0,0,.5) !important;
+}
 
 :root {
   --background: #f8fafc;

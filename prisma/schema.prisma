@@ -20,6 +20,9 @@ model User {
   emailVerified DateTime?
   image         String?
   role          String           @default("MEMBER")
+  password      String?
+  birthdate     DateTime?
+  gender        String?
   createdAt     DateTime         @default(now())
   calendars     CalendarMember[]
   events        Event[]          @relation("EventCreator")
@@ -27,16 +30,35 @@ model User {
   logs          EventActivity[]
   accounts      Account[]
   sessions      Session[]
+  notifications Notification[]   @relation("NotificationRecipient")
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String
+  calendarId String?
+  eventId    String?
+  actorName  String
+  type       String   // event_edited | event_deleted | event_created | comment_added
+  message    String
+  isRead     Boolean  @default(false)
+  snapshot   String?  // JSON of previous event state for rollback
+  createdAt  DateTime @default(now())
+  user       User     @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
 }
 
 model Calendar {
-  id        String           @id @default(cuid())
-  key       String           @unique
-  name      String
-  color     String
-  createdAt DateTime         @default(now())
-  members   CalendarMember[]
-  events    Event[]
+  id         String           @id @default(cuid())
+  key        String           @unique
+  name       String
+  color      String
+  shareToken String?          @unique
+  shareRole  String           @default("VIEWER")
+  createdAt  DateTime         @default(now())
+  members    CalendarMember[]
+  events     Event[]
 }
 
 model CalendarMember {
@@ -59,19 +81,37 @@ model Event {
   startAt     DateTime
   endAt       DateTime?
   allDay      Boolean         @default(false)
-  location    String?
-  description String?
-  createdById String
+  location       String?
+  locationDetail String?
+  description    String?
+  createdById    String
+  isTask      Boolean         @default(false)
+  isDone      Boolean         @default(false)
+  guestName   String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   calendar    Calendar        @relation(fields: [calendarId], references: [id], onDelete: Cascade)
   createdBy   User            @relation("EventCreator", fields: [createdById], references: [id])
   comments    EventComment[]
   activities  EventActivity[]
+  reactions   EventReaction[]
   externalGoogleEventId String?
+  url         String?
+  reminderMinutes String?
 
   @@index([calendarId, startAt])
   @@index([createdById])
+}
+
+model EventReaction {
+  id         String   @id @default(cuid())
+  eventId    String
+  emoji      String
+  authorName String
+  createdAt  DateTime @default(now())
+  event      Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
 }
 
 model EventComment {
@@ -134,4 +174,14 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model EmailVerification {
+  id        String   @id @default(cuid())
+  token     String   @unique @default(cuid())
+  email     String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
 }

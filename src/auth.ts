@@ -2,8 +2,10 @@ import type { NextAuthOptions } from "next-auth";
 import Google from "next-auth/providers/google";
 import Naver from "next-auth/providers/naver";
 import Kakao from "next-auth/providers/kakao";
+import CredentialsProvider from "next-auth/providers/credentials";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
+import bcrypt from "bcryptjs";
 
 function toSlug(text: string) {
   return text
@@ -55,6 +57,30 @@ if (kakaoId && kakaoSecret) {
     }),
   );
 }
+
+// 이메일/비밀번호 Credentials 프로바이더
+providers.push(
+  CredentialsProvider({
+    id: "credentials",
+    name: "이메일",
+    credentials: {
+      email: { label: "이메일", type: "email" },
+      password: { label: "비밀번호", type: "password" },
+    },
+    async authorize(credentials) {
+      if (!credentials?.email || !credentials?.password) return null;
+      const email = credentials.email.trim().toLowerCase();
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user || !user.password) return null;
+      if (!user.emailVerified) {
+        throw new Error("email_not_verified");
+      }
+      const ok = await bcrypt.compare(credentials.password, user.password);
+      if (!ok) return null;
+      return { id: user.id, name: user.name, email: user.email, image: user.image };
+    },
+  })
+);
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
