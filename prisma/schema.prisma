@@ -50,15 +50,60 @@ model Notification {
 }
 
 model Calendar {
-  id         String           @id @default(cuid())
-  key        String           @unique
+  id         String              @id @default(cuid())
+  key        String              @unique
   name       String
   color      String
-  shareToken String?          @unique
-  shareRole  String           @default("VIEWER")
-  createdAt  DateTime         @default(now())
+  shareToken String?             @unique
+  shareRole  String              @default("VIEWER")
+  createdAt  DateTime            @default(now())
   members    CalendarMember[]
   events     Event[]
+  shareLinks CalendarShareLink[]
+}
+
+/// 캘린더당 여러 개의 공유 링크(권한·만료·라벨·접속자 관리)
+model CalendarShareLink {
+  id          String   @id @default(cuid())
+  calendarId  String
+  token       String   @unique
+  shareRole   String   @default("VIEWER")
+  /// true면 게스트가 이름 등록 후 소유자 승인까지 캘린더 API 접근 불가
+  guestApprovalRequired Boolean @default(false)
+  /// 소유자용 메모 (예: 3번팀용)
+  label       String?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  revokedAt   DateTime?
+  calendar    Calendar @relation(fields: [calendarId], references: [id], onDelete: Cascade)
+  visitors    ShareLinkVisitor[]
+
+  @@index([calendarId, createdAt])
+  @@index([token, revokedAt])
+}
+
+/// 공유 링크별 방문자(브라우저 localStorage 키 기준) — 소유자가 이름을 붙여 관리
+model ShareLinkVisitor {
+  id            String   @id @default(cuid())
+  linkId        String
+  visitorKey    String
+  /// 게스트가 접속 시 제출한 이름
+  guestDisplayName String?
+  /// AUTO(승인 불필요 링크) | PENDING | APPROVED | REVOKED
+  approvalStatus String  @default("AUTO")
+  /// 승인 후 링크 기본 권한 대신 적용 (null이면 링크 shareRole)
+  guestRole     String?
+  firstSeenAt   DateTime @default(now())
+  lastSeenAt    DateTime @updatedAt
+  accessCount   Int      @default(1)
+  ownerLabel    String?
+  lastIpHash    String?
+  lastUaHash    String?
+  link          CalendarShareLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@unique([linkId, visitorKey])
+  @@index([linkId, lastSeenAt])
+  @@index([linkId, approvalStatus])
 }
 
 model CalendarMember {
@@ -192,9 +237,34 @@ model MultiShare {
   id          String   @id @default(cuid())
   token       String   @unique
   shareRole   String   @default("VIEWER")
+  guestApprovalRequired Boolean @default(false)
   ownerId     String
   calendarIds String   // JSON array of calendarIds
   createdAt   DateTime @default(now())
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  visitors    MultiShareVisitor[]
 
   @@index([ownerId])
+}
+
+/// 동시 공유 링크 접속 기기(멀티캘린더)
+model MultiShareVisitor {
+  id             String     @id @default(cuid())
+  multiShareId   String
+  visitorKey     String
+  guestDisplayName String?
+  approvalStatus String     @default("AUTO")
+  guestRole      String?
+  firstSeenAt    DateTime   @default(now())
+  lastSeenAt     DateTime   @updatedAt
+  accessCount    Int        @default(1)
+  ownerLabel     String?
+  lastIpHash     String?
+  lastUaHash     String?
+  multiShare     MultiShare @relation(fields: [multiShareId], references: [id], onDelete: Cascade)
+
+  @@unique([multiShareId, visitorKey])
+  @@index([multiShareId, lastSeenAt])
+  @@index([multiShareId, approvalStatus])
 }

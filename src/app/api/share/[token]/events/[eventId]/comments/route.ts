@@ -1,19 +1,28 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { allowShareRequest } from "@/lib/share-token";
+import { requireCalendarShareForGuest } from "@/lib/share-guest-access";
 
 type Ctx = { params: Promise<{ token: string; eventId: string }> };
 
 export async function POST(request: Request, ctx: Ctx) {
   const { token, eventId } = await ctx.params;
-  const cal = await prisma.calendar.findUnique({ where: { shareToken: token } });
-  if (!cal) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+  if (!allowShareRequest(request, token)) {
+    return NextResponse.json(
+      { error: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요." },
+      { status: 429 },
+    );
+  }
+  const access = await requireCalendarShareForGuest(request, token);
+  if (!access.ok) return access.response;
+
+  const cal = access.calendar;
 
   const body = (await request.json()) as { content?: string; guestName?: string };
   const content = body.content?.trim();
   const guestName = body.guestName?.trim() || "게스트";
   if (!content) return NextResponse.json({ error: "내용 필요" }, { status: 400 });
 
-  // 캘린더 소유자 계정으로 댓글 작성 (게스트 이름 prefix 포함)
   const owner = await prisma.calendarMember.findFirst({ where: { calendarId: cal.id, role: "OWNER" } });
   if (!owner) return NextResponse.json({ error: "오류" }, { status: 500 });
 
@@ -25,7 +34,6 @@ export async function POST(request: Request, ctx: Ctx) {
     include: { author: { select: { id: true, name: true } } },
   });
 
-  // 캘린더 소유자에게 알림
   await prisma.notification.create({
     data: {
       userId: owner.userId,
@@ -37,7 +45,6 @@ export async function POST(request: Request, ctx: Ctx) {
     },
   });
 
-  // 게스트 이름으로 author name 오버라이드
   const result = { ...comment, author: { ...comment.author, name: guestName } };
 
   return NextResponse.json({ ok: true, comment: result });

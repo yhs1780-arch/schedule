@@ -32,17 +32,22 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return forbidden();
 
-  // 매 로드마다 개인 캘린더 존재 여부 보장
-  await ensurePersonalCalendar(user.id, user.name ?? null, user.slug ?? "");
-
-  const memberships = await prisma.calendarMember.findMany({
+  let memberships = await prisma.calendarMember.findMany({
     where: { userId: user.id },
     select: { calendarId: true, role: true },
   });
+  if (memberships.length === 0) {
+    await ensurePersonalCalendar(user.id, user.name ?? null, user.slug ?? "");
+    memberships = await prisma.calendarMember.findMany({
+      where: { userId: user.id },
+      select: { calendarId: true, role: true },
+    });
+  }
+
   const allowedCalendarIds =
     user.role === "OWNER" ? undefined : memberships.map((membership) => membership.calendarId);
 
-  const calendars = await prisma.calendar.findMany({
+  const calendarsRaw = await prisma.calendar.findMany({
     where: allowedCalendarIds ? { id: { in: allowedCalendarIds } } : undefined,
     orderBy: { createdAt: "asc" },
     include: {
@@ -53,13 +58,11 @@ export async function GET() {
       events: {
         orderBy: { startAt: "asc" },
         include: {
+          // 목록: 최근 댓글만 (전부 로드 시 이벤트 수 × 댓글 조인 폭발 방지)
           comments: {
+            orderBy: { createdAt: "desc" },
+            take: 24,
             include: { author: { select: { id: true, name: true } } },
-            orderBy: { createdAt: "asc" },
-          },
-          activities: {
-            include: { actor: { select: { id: true, name: true } } },
-            orderBy: { createdAt: "asc" },
           },
           createdBy: { select: { id: true, name: true } },
           reactions: { orderBy: { createdAt: "asc" } },
@@ -67,6 +70,17 @@ export async function GET() {
       },
     },
   });
+
+  const calendars = calendarsRaw.map((c) => ({
+    ...c,
+    events: c.events.map((e) => ({
+      ...e,
+      comments: [...e.comments].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+      activities: [] as { id: string; action: string; createdAt: Date; actor: { id: string; name: string } }[],
+    })),
+  }));
 
   return NextResponse.json({ user, calendars });
 }

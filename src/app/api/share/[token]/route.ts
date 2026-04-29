@@ -1,15 +1,27 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { allowShareRequest } from "@/lib/share-token";
+import { requireCalendarShareForGuest } from "@/lib/share-guest-access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type Ctx = { params: Promise<{ token: string }> };
 
-export async function GET(_req: Request, ctx: Ctx) {
+export async function GET(request: Request, ctx: Ctx) {
   const { token } = await ctx.params;
+  if (!allowShareRequest(request, token)) {
+    return NextResponse.json(
+      { error: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요." },
+      { status: 429 },
+    );
+  }
+
+  const access = await requireCalendarShareForGuest(request, token);
+  if (!access.ok) return access.response;
+
   const cal = await prisma.calendar.findUnique({
-    where: { shareToken: token },
+    where: { id: access.calendarId },
     include: {
       members: { select: { role: true, user: { select: { id: true, name: true } } } },
       events: {
@@ -32,7 +44,7 @@ export async function GET(_req: Request, ctx: Ctx) {
       id: cal.id,
       name: cal.name,
       color: cal.color,
-      shareRole: cal.shareRole,
+      shareRole: access.effectiveRole,
       memberCount: cal.members.length,
     },
     events: cal.events,
@@ -42,10 +54,21 @@ export async function GET(_req: Request, ctx: Ctx) {
 // 비회원 편집자가 이벤트 생성 (EDITOR 공유 링크)
 export async function POST(request: Request, ctx: Ctx) {
   const { token } = await ctx.params;
-  const cal = await prisma.calendar.findUnique({ where: { shareToken: token } });
-  if (!cal) return NextResponse.json({ error: "유효하지 않은 링크입니다." }, { status: 404 });
-  if (cal.shareRole !== "EDITOR") return NextResponse.json({ error: "편집 권한이 없습니다." }, { status: 403 });
+  if (!allowShareRequest(request, token)) {
+    return NextResponse.json(
+      { error: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요." },
+      { status: 429 },
+    );
+  }
 
+  const access = await requireCalendarShareForGuest(request, token);
+  if (!access.ok) return access.response;
+
+  if (access.effectiveRole !== "EDITOR") {
+    return NextResponse.json({ error: "편집 권한이 없습니다." }, { status: 403 });
+  }
+
+  const cal = access.calendar;
   const body = (await request.json()) as {
     title?: string; startAt?: string; endAt?: string | null;
     allDay?: boolean; location?: string; locationDetail?: string; description?: string; url?: string; guestName?: string;
@@ -64,10 +87,9 @@ export async function POST(request: Request, ctx: Ctx) {
     } catch { /* ignore */ }
   }
 
-  // 게스트용 시스템 유저 찾기 (없으면 캘린더 첫 번째 OWNER 사용)
-  const owner = cal ? await prisma.calendarMember.findFirst({
+  const owner = await prisma.calendarMember.findFirst({
     where: { calendarId: cal.id, role: "OWNER" },
-  }) : null;
+  });
   if (!owner) return NextResponse.json({ error: "캘린더 소유자를 찾을 수 없습니다." }, { status: 500 });
 
   const event = await prisma.event.create({
@@ -93,7 +115,6 @@ export async function POST(request: Request, ctx: Ctx) {
     data: { eventId: event.id, actorId: owner.userId, action: `게스트(${guestLabel}) 일정 생성` },
   });
 
-  // 캘린더 소유자에게 알림
   await prisma.notification.create({
     data: {
       userId: owner.userId,

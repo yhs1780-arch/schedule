@@ -25,10 +25,15 @@ export async function POST(_req: Request, ctx: Ctx) {
     endAt?: string | null;
     allDay?: boolean;
     location?: string | null;
+    locationDetail?: string | null;
     description?: string | null;
     url?: string | null;
     reminderMinutes?: string | null;
     calendarId?: string;
+    tags?: string | null;
+    isTask?: boolean;
+    isDone?: boolean;
+    guestName?: string | null;
     _deleted?: boolean;
   };
 
@@ -52,9 +57,14 @@ export async function POST(_req: Request, ctx: Ctx) {
         endAt: snap.endAt ? new Date(snap.endAt) : null,
         allDay: snap.allDay ?? false,
         location: snap.location,
+        locationDetail: snap.locationDetail,
         description: snap.description,
         url: snap.url,
         reminderMinutes: snap.reminderMinutes,
+        tags: snap.tags,
+        isTask: snap.isTask ?? false,
+        isDone: snap.isDone ?? false,
+        guestName: snap.guestName,
         createdById: user.id,
       },
     });
@@ -82,8 +92,14 @@ export async function POST(_req: Request, ctx: Ctx) {
       endAt: snap.endAt !== undefined ? (snap.endAt ? new Date(snap.endAt) : null) : event.endAt,
       allDay: snap.allDay !== undefined ? snap.allDay : event.allDay,
       location: snap.location !== undefined ? snap.location : event.location,
+      locationDetail: snap.locationDetail !== undefined ? snap.locationDetail : event.locationDetail,
       description: snap.description !== undefined ? snap.description : event.description,
       url: snap.url !== undefined ? snap.url : event.url,
+      reminderMinutes: snap.reminderMinutes !== undefined ? snap.reminderMinutes : event.reminderMinutes,
+      tags: snap.tags !== undefined ? snap.tags : event.tags,
+      isTask: snap.isTask !== undefined ? snap.isTask : event.isTask,
+      isDone: snap.isDone !== undefined ? snap.isDone : event.isDone,
+      guestName: snap.guestName !== undefined ? snap.guestName : event.guestName,
     },
   });
 

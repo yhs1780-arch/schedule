@@ -43,6 +43,7 @@ export default function NotificationsPage() {
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [loading, setLoading] = useState(true);
   const [rolling, setRolling] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -69,12 +70,33 @@ export default function NotificationsPage() {
     setRolling(id);
     try {
       const res = await fetch(`/api/notifications/${id}/rollback`, { method: "POST" });
-      const d = (await res.json()) as { ok?: boolean; type?: string };
-      if (d.ok) {
+      const d = (await res.json()) as { ok?: boolean; type?: string; error?: string };
+      if (res.ok && d.ok) {
         alert(d.type === "restored" ? "✅ 삭제된 일정이 복원됐어요." : "✅ 이전 상태로 롤백됐어요.");
         void load();
-      } else { alert("롤백에 실패했어요."); }
+      } else {
+        alert(d.error ?? "롤백에 실패했어요.");
+      }
     } finally { setRolling(null); }
+  }
+
+  async function deleteEventFromNotif(id: string) {
+    if (!confirm("이 일정을 완전히 삭제할까요?\n수정 전 내용으로 되돌리려면 '이전으로 되돌리기'를 먼저 고려해 주세요.")) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/notifications/${id}/delete-event`, { method: "POST" });
+      const d = (await res.json()) as { ok?: boolean; error?: string; alreadyDeleted?: boolean };
+      if (res.ok && d.ok) {
+        alert(d.alreadyDeleted ? "이미 삭제된 일정이에요." : "✅ 일정을 삭제했어요.");
+        void load();
+      } else {
+        alert(d.error ?? "삭제에 실패했어요.");
+      }
+    } catch {
+      alert("오류가 발생했어요.");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   const unread = notifs.filter(n => !n.isRead).length;
@@ -116,7 +138,12 @@ export default function NotificationsPage() {
             <p className="mt-1 text-sm text-gray-400">공유 캘린더에서 활동이 생기면 여기에 표시돼요.</p>
           </div>
         ) : (
-          notifs.map(n => (
+          notifs.map(n => {
+            let wasDeleted: boolean | undefined;
+            if (n.snapshot) {
+              try { wasDeleted = (JSON.parse(n.snapshot) as { _deleted?: boolean })._deleted; } catch { wasDeleted = undefined; }
+            }
+            return (
             <div key={n.id} className={`rounded-2xl border bg-white p-4 shadow-sm transition ${n.isRead ? "border-gray-100 opacity-70" : "border-indigo-100 bg-indigo-50/30"}`}>
               <div className="flex items-start gap-3">
                 <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-lg ${n.isRead ? "bg-gray-100" : "bg-indigo-100"}`}>
@@ -129,20 +156,31 @@ export default function NotificationsPage() {
                     <span className="text-[10px] text-gray-400">{relTime(n.createdAt)}</span>
                     {!n.isRead && <span className="h-1.5 w-1.5 rounded-full bg-indigo-500"/>}
                   </div>
-                  {/* 롤백 버튼 (스냅샷 있을 때) */}
-                  {n.snapshot && (
-                    <button onClick={() => void rollback(n.id)} disabled={rolling === n.id}
-                      className="mt-2 flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition">
-                      {rolling === n.id ? (
-                        <span className="h-3 w-3 animate-spin rounded-full border border-amber-500 border-t-transparent"/>
-                      ) : "↩️"}
-                      {rolling === n.id ? "롤백 중..." : "이전 상태로 되돌리기"}
-                    </button>
+                  {n.snapshot && (n.type === "event_edited" || n.type === "event_deleted") && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button type="button" onClick={() => void rollback(n.id)} disabled={rolling === n.id || deletingId === n.id}
+                          className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50 transition">
+                          {rolling === n.id ? (
+                            <span className="h-3 w-3 animate-spin rounded-full border border-amber-500 border-t-transparent"/>
+                          ) : "↩️"}
+                          {rolling === n.id ? "처리 중…" : wasDeleted ? "삭제된 일정 복원" : "이전으로 되돌리기"}
+                        </button>
+                        {n.type === "event_edited" && (
+                          <button type="button" onClick={() => void deleteEventFromNotif(n.id)} disabled={rolling === n.id || deletingId === n.id}
+                            className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50 transition">
+                            {deletingId === n.id ? (
+                              <span className="h-3 w-3 animate-spin rounded-full border border-red-500 border-t-transparent"/>
+                            ) : "🗑️"}
+                            {deletingId === n.id ? "삭제 중…" : "일정 삭제"}
+                          </button>
+                        )}
+                      </div>
                   )}
                 </div>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

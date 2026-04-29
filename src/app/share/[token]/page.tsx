@@ -1,10 +1,14 @@
 "use client";
 
 import type React from "react";
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import Link from "next/link";
 import { use } from "react";
 import { calDotParts, calPillParts, resolveCalendarColor } from "@/lib/calendar-colors";
+import { navigationSearchQuery, naverMapDirectionsUrl, tmapNavigationRouteUrl } from "@/lib/directions-links";
+import { useOverlayHistoryStack } from "@/hooks/useOverlayHistoryStack";
+import { AddressField } from "@/components/AddressField";
+import { shareApiFetch } from "@/lib/share-visitor-client";
 
 /* ─── AutoTextarea ───────────────────────────────────────────────── */
 function AutoTextarea({ value, onChange, placeholder, className, minRows = 1, onKeyDown, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number }) {
@@ -28,6 +32,7 @@ type EventItem = {
 type CalInfo = { id: string; name: string; color: string; shareRole: string; memberCount: number };
 
 /* ─── Helpers ────────────────────────────────────────────────────── */
+const SHARE_VIEW_KEY = "syncnest_share_view";
 const MONTHS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
 const DAYS_KR = ["일","월","화","수","목","금","토"];
 function pad(n: number) { return String(n).padStart(2,"0"); }
@@ -43,76 +48,6 @@ function buildGrid(y: number, m: number) {
   return rows;
 }
 
-
-declare global { interface Window { daum?: {Postcode:new(o:{q?:string;oncomplete:(d:{roadAddress:string;jibunAddress:string})=>void;width?:string|number;height?:string|number})=>{open:()=>void;embed:(el:HTMLElement,opts?:{autoClose?:boolean})=>void}}; } }
-
-/* ─── AddressField (모달 방식) ──────────────────────────────────── */
-function AddressField({ value, onChange, detail, onDetailChange }:{ value:string; onChange:(v:string)=>void; detail:string; onDetailChange:(v:string)=>void; }){
-  const [modalOpen, setModalOpen] = useState(false);
-  const embedRef = useRef<HTMLDivElement>(null);
-  function mountEmbed(q?:string){
-    const el=embedRef.current; if(!el)return; el.innerHTML="";
-    const run=()=>new window.daum!.Postcode({q:q?.trim()||undefined,oncomplete(d){onChange(d.roadAddress||d.jibunAddress);setModalOpen(false);},width:"100%",height:"100%"}).embed(el,{autoClose:true});
-    if(window.daum?.Postcode)run();
-    else{const s=document.createElement("script");s.src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";s.onload=run;document.head.appendChild(s);}
-  }
-  useEffect(()=>{
-    if(!modalOpen)return;
-    setTimeout(()=>mountEmbed(value||undefined),80);
-  },[modalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-  return(
-    <>
-      {!value?(
-        <button type="button" onClick={()=>setModalOpen(true)}
-          className="flex w-full items-center gap-2.5 rounded-xl border border-dashed border-gray-300 px-3 py-3 text-left text-sm text-gray-400 hover:border-indigo-400 hover:bg-indigo-50/40 hover:text-indigo-500 transition group">
-          <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-base group-hover:bg-indigo-100">📍</span>
-          <div><p className="text-sm font-medium group-hover:text-indigo-600">위치 추가</p><p className="text-[10px] text-gray-300">도로명·지역명·지하철역 검색</p></div>
-        </button>
-      ):(
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
-          <div className="flex items-start gap-2">
-            <span className="mt-0.5 text-base flex-shrink-0">📍</span>
-            <div className="flex-1 min-w-0">
-              <button type="button" onClick={()=>setModalOpen(true)} className="w-full text-left">
-                <p className="text-sm font-semibold text-gray-800 leading-snug hover:text-indigo-600">{value}</p>
-                {detail&&<p className="text-xs text-gray-500 mt-0.5">{detail}</p>}
-              </button>
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <a href={`https://map.kakao.com/link/search/${encodeURIComponent(value)}`} target="_blank" rel="noreferrer"
-                className="rounded-lg border border-amber-200 bg-white px-2 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-50">🗺️ 지도</a>
-              <button type="button" onClick={()=>setModalOpen(true)} className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] font-medium text-gray-500 hover:bg-gray-50">변경</button>
-              <button type="button" onClick={()=>{onChange("");onDetailChange("");}} className="rounded-lg p-1 text-gray-300 hover:text-red-400 hover:bg-red-50">
-                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
-          </div>
-          <input value={detail} onChange={e=>onDetailChange(e.target.value)} placeholder="상세 주소 (동/호수/층 등, 선택)"
-            className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs outline-none placeholder:text-gray-300 focus:border-indigo-400"/>
-        </div>
-      )}
-      {/* 주소 검색 모달 — Kakao embed 단일 입력창만 표시 */}
-      {modalOpen&&(
-        <div className="fixed inset-0 z-[3000] flex flex-col items-center justify-end sm:justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={()=>setModalOpen(false)}/>
-          <div className="relative z-10 flex w-full flex-col bg-white shadow-2xl sm:max-w-lg sm:rounded-2xl"
-            style={{height:"min(600px,88dvh)",borderRadius:"20px 20px 0 0"}} onClick={e=>e.stopPropagation()}>
-            <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">📍</span>
-                <div><h3 className="text-sm font-bold text-gray-900">주소 검색</h3><p className="text-[10px] text-gray-400">도로명 · 지번 · 건물명 · 지하철역 가능</p></div>
-              </div>
-              <button type="button" onClick={()=>setModalOpen(false)} className="rounded-xl p-2 text-gray-400 hover:bg-gray-100">
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
-            <div ref={embedRef} className="flex-1 overflow-hidden"/>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
 
 /* ─── TOUR OVERLAY (클릭 차단 + 구멍 오버레이) ─────────────────── */
 type TourStepDef = { selector: string; title: string; desc: string; click: boolean };
@@ -187,7 +122,7 @@ function TourOverlay({ step, stepIdx, total, onNext, onSkip }: { step: TourStepD
 function buildShareTourSteps(canEdit: boolean): TourStepDef[] {
   return [
     { selector: "#share-header", title: "👋 공유 캘린더에 오신 걸 환영해요!", desc: `링크를 통해 이 캘린더를 보고 있어요.\n${canEdit?"✏️ 편집 권한으로 일정을 추가·수정할 수 있어요.":"👁️ 보기 권한으로 일정을 확인할 수 있어요."}`, click: false },
-    { selector: "#share-view-toggle", title: "🗓 보기 방식 전환", desc: "월간 캘린더와 목록 형태를 전환해보세요.\n📱 모바일: 좌우 스와이프로 월 이동도 가능해요.", click: true },
+    { selector: "#share-view-toggle", title: "🗓 보기 방식 전환", desc: "월간·주간·목록을 전환할 수 있어요.\n📱 모바일: 캘린더에서 좌우 스와이프로 월 이동이 가능해요.", click: true },
     { selector: "#share-cal-grid", title: "📅 캘린더", desc: `날짜를 탭하면 그 날의 일정을 확인할 수 있어요.${canEdit?"\n일정 추가도 가능해요!":""}`, click: false },
     ...(canEdit ? [{ selector: "#share-add-fab", title: "➕ 일정 추가 버튼", desc: "이 버튼을 눌러 새 일정을 추가해보세요!\n제목, 날짜, 장소, 메모 등을 입력할 수 있어요.", click: true }] : []),
     { selector: "#share-ical-btn", title: "📥 캘린더 내보내기", desc: "이 캘린더를 .ics 파일로 다운로드해서\nGoogle Calendar, 아이폰 캘린더에 추가할 수 있어요!", click: false },
@@ -200,12 +135,29 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
   const { token } = use(params);
   const touchX = useRef<number|null>(null);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (!window.history.state?.snShare) {
+        window.history.replaceState({ ...window.history.state, snShare: 1 }, "", window.location.href);
+      }
+    } catch { /* ignore */ }
+  }, [token]);
+
   const [cal, setCal] = useState<CalInfo|null>(null);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string|null>(null);
+  const [accessGate, setAccessGate] = useState<null | "name" | "pending">(null);
+  const [pendingGuestName, setPendingGuestName] = useState("");
+  const [gateSubmitting, setGateSubmitting] = useState(false);
+  const [gateNameDraft, setGateNameDraft] = useState("");
 
-  const [view, setView] = useState<"month"|"list">("month");
+  const [view, setViewState] = useState<"month"|"week"|"list">("month");
+  const setView = useCallback((v: "month"|"week"|"list") => {
+    setViewState(v);
+    if (typeof window !== "undefined") localStorage.setItem(SHARE_VIEW_KEY, v);
+  }, []);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedId, setSelectedId] = useState<string|null>(null);
   const [daySummaryDate, setDaySummaryDate] = useState<string|null>(null);
@@ -235,25 +187,79 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
   // Comment
   const [newComment, setNewComment] = useState(""); const [commentSubmitting, setCommentSubmitting] = useState(false);
 
-  /* ── load ── */
-  useEffect(()=>{
-    const saved = typeof window!=="undefined" ? (localStorage.getItem("syncnest_guest_name")||"") : "";
-    setGuestName(saved);
-    void (async()=>{
-      try{
-        const res=await fetch(`/api/share/${token}`, { cache: "no-store" });
-        if(!res.ok){const d=(await res.json()) as {error?:string};setError(d.error??"링크를 찾을 수 없습니다.");return;}
-        const data=(await res.json()) as {calendar:CalInfo;events:EventItem[]};
-        setCal(data.calendar);setEvents(data.events);
-      }catch{setError("불러오기 실패");}
-      finally{setLoading(false);}
-    })();
-  },[token]);
-
   // Product tour - first visit
   const [tourActive, setTourActive] = useState(false);
   const [tourStep, setTourStep] = useState(0);
   const [tourSteps, setTourSteps] = useState<TourStepDef[]>([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const v = localStorage.getItem(SHARE_VIEW_KEY);
+    if (v === "list" || v === "week" || v === "month") setViewState(v as "month"|"week"|"list");
+  }, []);
+
+  const loadCalendar = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await shareApiFetch(`/api/share/${encodeURIComponent(token)}`, { cache: "no-store" });
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (res.ok) {
+        const d = data as { calendar: CalInfo; events: EventItem[] };
+        setCal(d.calendar);
+        setEvents(d.events);
+        setAccessGate(null);
+      } else if (res.status === 403) {
+        const code = data.code as string | undefined;
+        if (code === "GUEST_ACCESS_NEEDED") {
+          setCal(null);
+          setEvents([]);
+          setAccessGate("name");
+        } else if (code === "GUEST_PENDING") {
+          setCal(null);
+          setEvents([]);
+          setAccessGate("pending");
+          setPendingGuestName(String((data as { guestDisplayName?: string }).guestDisplayName ?? ""));
+        } else if (code === "GUEST_REVOKED") {
+          setCal(null);
+          setEvents([]);
+          setAccessGate(null);
+          setError(String((data as { message?: string }).message ?? "접근이 차단되었습니다."));
+        } else {
+          setCal(null);
+          setEvents([]);
+          setAccessGate(null);
+          setError(String((data as { error?: string; message?: string }).error ?? (data as { message?: string }).message ?? "접근할 수 없습니다."));
+        }
+      } else {
+        setCal(null);
+        setEvents([]);
+        setAccessGate(null);
+        setError(String((data as { error?: string }).error ?? "링크를 찾을 수 없습니다."));
+      }
+    } catch {
+      setCal(null);
+      setAccessGate(null);
+      setError("불러오기 실패");
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("syncnest_guest_name") || "" : "";
+    setGuestName(saved);
+  }, []);
+
+  useEffect(() => {
+    void loadCalendar();
+  }, [loadCalendar]);
+
+  useEffect(() => {
+    if (accessGate !== "pending") return;
+    const id = setInterval(() => void loadCalendar(), 8000);
+    return () => clearInterval(id);
+  }, [accessGate, loadCalendar]);
 
   useEffect(()=>{
     if(!cal) return;
@@ -282,7 +288,47 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
   const canEdit = cal?.shareRole==="EDITOR";
   const year=currentDate.getFullYear(), month=currentDate.getMonth(), today=new Date();
 
-  /* ── actions ── */
+  const overlaySnap = useRef({ tourActive, confirmDelId: null as string | null, editId: null as string | null, showAddForm: false, daySummaryDate: null as string | null, selectedId: null as string | null, showSearch: false });
+  overlaySnap.current = { tourActive, confirmDelId, editId, showAddForm, daySummaryDate, selectedId, showSearch };
+
+  const popTopOverlay = useCallback(() => {
+    const s = overlaySnap.current;
+    if (s.tourActive) { setTourActive(false); return; }
+    if (s.confirmDelId) { setConfirmDelId(null); return; }
+    if (s.editId) { setEditId(null); return; }
+    if (s.showAddForm) { setShowAddForm(false); return; }
+    if (s.daySummaryDate) { setDaySummaryDate(null); return; }
+    if (s.showSearch) { setShowSearch(false); setSearch(""); return; }
+    if (s.selectedId) { setSelectedId(null); }
+  }, []);
+
+  const overlayDepth =
+    (tourActive ? 1 : 0) +
+    (confirmDelId ? 1 : 0) +
+    (editId ? 1 : 0) +
+    (showAddForm ? 1 : 0) +
+    (daySummaryDate ? 1 : 0) +
+    (selectedId ? 1 : 0) +
+    (showSearch ? 1 : 0);
+
+  useOverlayHistoryStack(overlayDepth, popTopOverlay);
+
+  async function submitGuestAccess() {
+    const name = gateNameDraft.trim();
+    if (name.length < 2) return;
+    setGateSubmitting(true);
+    try {
+      await shareApiFetch(`/api/share/${encodeURIComponent(token)}/guest-access`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ displayName: name }),
+      });
+      await loadCalendar();
+    } finally {
+      setGateSubmitting(false);
+    }
+  }
+
   function saveGuestName(n:string){setGuestName(n);if(typeof window!=="undefined")localStorage.setItem("syncnest_guest_name",n);}
 
   function openAdd(date?:string){
@@ -309,7 +355,7 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
     const startAt=evAllDay?new Date(`${evDate}T00:00:00`).toISOString():new Date(`${evDate}T${evTime}:00`).toISOString();
     const endAt=evHasEnd?(evAllDay?new Date(`${evEndDate}T23:59:59`).toISOString():new Date(`${evEndDate}T${evEndTime}:00`).toISOString()):null;
     const finalLoc=[evLoc.trim(),evLocDetail.trim()].filter(Boolean).join(" ");
-    const res=await fetch(`/api/share/${token}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:evTitle.trim(),startAt,endAt,allDay:evAllDay,location:finalLoc||undefined,description:evDesc.trim()||undefined,url:evUrl.trim()||undefined,guestName:guestName.trim()})});
+    const res=await shareApiFetch(`/api/share/${token}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:evTitle.trim(),startAt,endAt,allDay:evAllDay,location:finalLoc||undefined,description:evDesc.trim()||undefined,url:evUrl.trim()||undefined,guestName:guestName.trim()})});
     if(res.ok){const d=(await res.json()) as {event:EventItem};setEvents(p=>[...p,d.event]);setShowAddForm(false);}
     setEvSubmitting(false);
   }
@@ -320,35 +366,82 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
     const startAt=editAllDay?new Date(`${editDate}T00:00:00`).toISOString():new Date(`${editDate}T${editTime}:00`).toISOString();
     const endAt=editHasEnd?(editAllDay?new Date(`${editEndDate}T23:59:59`).toISOString():new Date(`${editEndDate}T${editEndTime}:00`).toISOString()):null;
     const finalLoc=[editLoc.trim(),editLocDetail.trim()].filter(Boolean).join(" ");
-    const res=await fetch(`/api/share/${token}/events/${editId}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:editTitle.trim(),startAt,endAt,allDay:editAllDay,location:finalLoc||null,description:editDesc.trim()||null,url:editUrl.trim()||null,guestName:guestName.trim()})});
+    const res=await shareApiFetch(`/api/share/${token}/events/${editId}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:editTitle.trim(),startAt,endAt,allDay:editAllDay,location:finalLoc||null,description:editDesc.trim()||null,url:editUrl.trim()||null,guestName:guestName.trim()})});
     if(res.ok){const d=(await res.json()) as {event:EventItem};setEvents(p=>p.map(e=>e.id===editId?{...e,...d.event}:e));setEditId(null);setSelectedId(d.event.id);}
     setEditSubmitting(false);
   }
 
   async function deleteEvent(id:string){
     setEvents(p=>p.filter(e=>e.id!==id));setSelectedId(null);setConfirmDelId(null);
-    await fetch(`/api/share/${token}/events/${id}`,{method:"DELETE"});
+    await shareApiFetch(`/api/share/${token}/events/${id}`,{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({guestName:guestName.trim()})});
   }
 
   async function addComment(){
     if(!selected||!newComment.trim()||!guestName.trim()) return;
     setCommentSubmitting(true);
-    const res=await fetch(`/api/share/${token}/events/${selected.id}/comments`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:newComment.trim(),guestName:guestName.trim()})});
+    const res=await shareApiFetch(`/api/share/${token}/events/${selected.id}/comments`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:newComment.trim(),guestName:guestName.trim()})});
     if(res.ok){const d=(await res.json()) as {comment:EventItem["comments"][0]};setEvents(p=>p.map(e=>e.id===selected.id?{...e,comments:[...e.comments,d.comment]}:e));setNewComment("");}
     setCommentSubmitting(false);
   }
 
-  /* ── loading/error ── */
+  /* ── gate / loading / error ── */
+  if (accessGate === "name") {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="mb-4 text-center text-4xl">👤</div>
+          <h1 className="mb-1 text-center text-lg font-bold text-gray-900">이름을 알려주세요</h1>
+          <p className="mb-4 text-center text-sm leading-relaxed text-gray-500">캘린더 소유자가 승인하면 일정을 볼 수 있어요. 새 기기·브라우저마다 한 번씩 요청합니다.</p>
+          <input
+            autoFocus
+            value={gateNameDraft}
+            onChange={e => setGateNameDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") void submitGuestAccess(); }}
+            placeholder="예: 홍길동"
+            className="mb-3 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+          />
+          <button
+            type="button"
+            onClick={() => void submitGuestAccess()}
+            disabled={gateNameDraft.trim().length < 2 || gateSubmitting}
+            className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-40 active:scale-[0.99]"
+          >
+            {gateSubmitting ? "전송 중..." : "확인"}
+          </button>
+        </div>
+        <Link href="/" className="mt-6 text-sm text-gray-400 underline">홈으로</Link>
+      </div>
+    );
+  }
+
+  if (accessGate === "pending") {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="w-full max-w-sm rounded-2xl border border-amber-100 bg-amber-50/80 p-6 text-center shadow-sm">
+          <div className="mb-3 text-4xl">⏳</div>
+          <h1 className="mb-2 text-lg font-bold text-gray-900">승인 대기 중</h1>
+          <p className="text-sm leading-relaxed text-gray-600">
+            <strong className="text-gray-900">{pendingGuestName || "요청"}</strong> 님으로 접속 요청을 보냈어요.
+            소유자가 승인하면 이 화면에서 자동으로 열려요.
+          </p>
+          <p className="mt-2 text-xs text-gray-400">잠시만 기다리시거나, 아래를 눌러 바로 확인할 수 있어요.</p>
+          <button type="button" onClick={() => void loadCalendar()} className="mt-5 w-full rounded-xl border border-amber-200 bg-white py-2.5 text-sm font-semibold text-amber-900 active:scale-[0.99]">지금 다시 확인</button>
+        </div>
+        <Link href="/" className="mt-6 text-sm text-gray-400 underline">홈으로</Link>
+      </div>
+    );
+  }
+
   if(loading) return(
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
       <div className="text-center"><div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent"/><p className="mt-3 text-sm text-gray-400">불러오는 중...</p></div>
     </div>
   );
   if(error||!cal) return(
-    <div className="flex min-h-screen items-center justify-center p-4">
+    <div className="flex min-h-screen items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="text-center"><div className="text-5xl mb-4">🔗</div>
-        <h1 className="text-xl font-bold text-gray-900 mb-2">링크를 찾을 수 없어요</h1>
-        <p className="text-sm text-gray-500 mb-6">{error}</p>
+        <h1 className="text-xl font-bold text-gray-900 mb-2">이 링크로는 열 수 없어요</h1>
+        <p className="text-sm text-gray-500 mb-6 max-w-xs mx-auto">{error}</p>
         <Link href="/" className="rounded-xl bg-indigo-600 px-6 py-3 text-sm font-bold text-white">홈으로</Link>
       </div>
     </div>
@@ -360,7 +453,7 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
   const todayEvsCount=filteredEvents.filter(e=>sameDay(new Date(e.startAt),today)).length;
 
   return(
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-gray-50">
+    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-gray-50">
 
       {/* ─── 투어 오버레이 ─── */}
       {tourActive&&tourSteps[tourStep]&&(
@@ -368,7 +461,7 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
       )}
 
       {/* ─── HEADER ─── */}
-      <header id="share-header" className="flex h-14 flex-shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 shadow-sm z-10">
+      <header id="share-header" className="flex h-14 flex-shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 pt-[env(safe-area-inset-top,0px)] shadow-sm z-10 min-h-[3.5rem]">
         <Link href="/" className="text-sm font-extrabold text-indigo-600 flex-shrink-0">SyncNest</Link>
         <span className="text-gray-200">|</span>
         <span className={_headPill.className} style={_headPill.style}>
@@ -401,7 +494,7 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
             <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01"/></svg>
           </button>
 
-          <Link href="/login" className="flex-shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700">
+          <Link href="/login" replace className="flex-shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700">
             로그인
           </Link>
         </div>
@@ -412,7 +505,7 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
         <div className="flex flex-1 flex-col overflow-hidden">
 
           {/* Sub-header: view toggle + month nav */}
-          <div className="flex flex-shrink-0 items-center gap-2 border-b border-gray-100 bg-white px-3 py-2">
+          <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 bg-white px-3 py-2">
             <button onClick={()=>setCurrentDate(new Date(year,month-1,1))} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
             </button>
@@ -425,9 +518,9 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
             <button onClick={()=>setCurrentDate(new Date())} className="rounded-lg border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">오늘</button>
 
             <div id="share-view-toggle" className="ml-auto flex items-center gap-0.5 rounded-lg border border-gray-200 p-0.5">
-              {(["month","list"] as const).map(v=>(
-                <button key={v} onClick={()=>setView(v)} className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${view===v?"bg-indigo-600 text-white shadow-sm":"text-gray-500 hover:bg-gray-50"}`}>
-                  {v==="month"?"월간":"목록"}
+              {(["month","week","list"] as const).map(v=>(
+                <button key={v} onClick={()=>setView(v)} className={`rounded-md px-2.5 sm:px-3 py-1.5 text-[11px] sm:text-xs font-medium transition ${view===v?"bg-indigo-600 text-white shadow-sm":"text-gray-500 hover:bg-gray-50"}`}>
+                  {v==="month"?"월간":v==="week"?"주간":"목록"}
                 </button>
               ))}
             </div>
@@ -453,6 +546,8 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
             onTouchEnd={e=>{if(touchX.current===null)return;const d=e.changedTouches[0].clientX-touchX.current;if(Math.abs(d)>60)setCurrentDate(p=>new Date(p.getFullYear(),p.getMonth()+(d<0?1:-1),1));touchX.current=null;}}>
             {view==="month"
               ? <ShareMonthView year={year} month={month} today={today} events={filteredEvents} selectedId={selectedId} canEdit={canEdit} onDayClick={d=>{if(window.innerWidth<1024){setDaySummaryDate(d);}else if(canEdit){openAdd(d);}else{setDaySummaryDate(d);}}} onEventClick={id=>{setSelectedId(id);setEditId(null);}}/>
+              : view==="week"
+              ? <ShareWeekView anchor={currentDate} today={today} events={filteredEvents} selectedId={selectedId} onDayClick={d=>{setDaySummaryDate(d);}} onEventClick={id=>{setSelectedId(id);setEditId(null);}} onPrevWeek={()=>setCurrentDate(p=>{const d=new Date(p);d.setDate(d.getDate()-7);return d;})} onNextWeek={()=>setCurrentDate(p=>{const d=new Date(p);d.setDate(d.getDate()+7);return d;})} onGotoToday={()=>setCurrentDate(new Date())}/>
               : <ShareListView events={filteredEvents} selectedId={selectedId} onEventClick={id=>{setSelectedId(id);setEditId(null);}}/>
             }
           </main>
@@ -462,7 +557,7 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
         {selected&&!editId&&(
           <>
             <div className="fixed inset-0 z-30 lg:hidden" onClick={()=>setSelectedId(null)}/>
-            <aside className="fixed bottom-0 inset-x-0 z-40 max-h-[88vh] overflow-y-auto rounded-t-3xl bg-white shadow-2xl lg:relative lg:bottom-auto lg:inset-x-auto lg:z-auto lg:max-h-full lg:h-full lg:w-80 lg:flex-shrink-0 lg:rounded-none lg:border-l lg:border-gray-200 lg:shadow-none">
+            <aside className="fixed bottom-0 inset-x-0 z-40 max-h-[min(88dvh,calc(100dvh-env(safe-area-inset-bottom)))] overflow-y-auto rounded-t-3xl bg-white shadow-2xl pb-[env(safe-area-inset-bottom,0px)] lg:relative lg:bottom-auto lg:inset-x-auto lg:z-auto lg:max-h-full lg:h-full lg:w-80 lg:flex-shrink-0 lg:rounded-none lg:border-l lg:border-gray-200 lg:shadow-none lg:pb-0">
               <div className="flex justify-center pt-2.5 pb-1 lg:hidden"><div className="h-1 w-10 rounded-full bg-gray-300"/></div>
               <ShareEventPanel
                 event={selected} canEdit={canEdit} guestName={guestName} onGuestNameChange={saveGuestName}
@@ -477,16 +572,16 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
 
       {/* FAB - mobile EDITOR only */}
       {canEdit&&(
-        <button id="share-add-fab" onClick={()=>openAdd()} className="fixed bottom-6 right-6 z-20 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-white shadow-2xl shadow-indigo-300 hover:bg-indigo-700 active:scale-95 transition lg:hidden">
+        <button id="share-add-fab" onClick={()=>openAdd()} className="fixed z-20 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 text-white shadow-2xl shadow-indigo-300 transition hover:bg-indigo-700 active:scale-95 lg:hidden" style={{ bottom: "max(1.5rem, env(safe-area-inset-bottom, 0px))", right: "max(1.5rem, env(safe-area-inset-right, 0px))" }}>
           <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
         </button>
       )}
 
       {/* ─── JOIN CTA BAR ─── */}
-      <div id="share-join-cta" className="flex-shrink-0 border-t border-indigo-100 bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 lg:hidden">
+      <div id="share-join-cta" className="flex-shrink-0 border-t border-indigo-100 bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] lg:hidden">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs text-white/90">내 캘린더도 만들어보세요 🗓</p>
-          <Link href="/register" className="flex-shrink-0 rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-indigo-700">무료 가입</Link>
+          <Link href="/register" replace className="flex-shrink-0 rounded-lg bg-white px-3 py-1.5 text-xs font-bold text-indigo-700">무료 가입</Link>
         </div>
       </div>
 
@@ -603,6 +698,62 @@ export default function SharePage({ params }:{ params: Promise<{token:string}> }
 }
 
 /* ─── Sub-components ─────────────────────────────────────────────── */
+function startOfWeekSunday(d: Date) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = x.getDay();
+  x.setDate(x.getDate() - day);
+  return x;
+}
+
+function ShareWeekView({ anchor, today, events, selectedId, onDayClick, onEventClick, onPrevWeek, onNextWeek, onGotoToday }:{
+  anchor: Date; today: Date; events: EventItem[]; selectedId: string | null;
+  onDayClick: (d: string) => void; onEventClick: (id: string) => void;
+  onPrevWeek: () => void; onNextWeek: () => void; onGotoToday: () => void;
+}){
+  const start = startOfWeekSunday(anchor);
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d;
+  });
+  const rangeLabel = `${days[0].getFullYear()}.${pad(days[0].getMonth() + 1)}.${pad(days[0].getDate())} ~ ${pad(days[6].getMonth() + 1)}.${pad(days[6].getDate())}`;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 bg-white px-1 py-1.5 sm:px-2">
+        <button type="button" onClick={onPrevWeek} className="rounded-lg px-1.5 py-1 text-[10px] sm:text-xs font-medium text-indigo-600 sm:px-2">← 이전</button>
+        <span className="text-[10px] sm:text-xs font-semibold text-gray-600">{rangeLabel}</span>
+        <div className="flex items-center gap-0.5 sm:gap-1">
+          <button type="button" onClick={onGotoToday} className="hidden rounded-lg px-1.5 py-1 text-[10px] text-gray-500 sm:inline sm:px-2 sm:text-xs">이번 주</button>
+          <button type="button" onClick={onNextWeek} className="rounded-lg px-1.5 py-1 text-[10px] sm:text-xs font-medium text-indigo-600 sm:px-2">다음 →</button>
+        </div>
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-7 overflow-x-auto border-b border-gray-200">
+        {days.map((d) => {
+          const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+          const isTod = sameDay(d, today);
+          const dayEvs = events.filter((e) => sameDay(new Date(e.startAt), d));
+          return (
+            <div key={dateStr} className={`min-h-[180px] border-r border-gray-100 p-0.5 sm:p-1 last:border-r-0 ${isTod ? "bg-indigo-50/40" : ""}`}>
+              <button type="button" onClick={() => onDayClick(dateStr)} className="w-full text-center">
+                <span className={`text-[9px] sm:text-[10px] font-semibold ${isTod ? "text-indigo-600" : "text-gray-500"}`}>{DAYS_KR[d.getDay()]}</span>
+                <div className={`text-xs sm:text-sm font-bold ${isTod ? "text-indigo-600" : "text-gray-800"}`}>{d.getDate()}</div>
+              </button>
+              <div className="mt-0.5 space-y-0.5">
+                {dayEvs.map((e) => (
+                  <button key={e.id} type="button" onClick={(ev) => { ev.stopPropagation(); onEventClick(e.id); }}
+                    className={`w-full truncate rounded px-0.5 py-0.5 text-left text-[8px] sm:text-[9px] font-medium text-indigo-800 bg-indigo-100/90 ${selectedId === e.id ? "ring-1 ring-indigo-400" : ""}`}>
+                    {e.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ShareModal({title,children,onClose}:{title:string;children:React.ReactNode;onClose:()=>void}){
   return(
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
@@ -723,6 +874,24 @@ function ShareEventPanel({event,canEdit,guestName,onGuestNameChange,newComment,c
           <button onClick={onClose} className="rounded-lg p-2 text-gray-400 hover:bg-gray-100"><svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg></button>
         </div>
       </div>
+      {event.location && (
+        <div className="flex flex-wrap gap-2 border-b border-gray-100 bg-slate-50/90 px-4 py-2.5">
+          <a
+            href={naverMapDirectionsUrl(navigationSearchQuery(event.location, null))}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-w-[120px] flex-1 items-center justify-center gap-1 rounded-xl border border-green-200 bg-white px-3 py-2.5 text-xs font-bold text-green-800 shadow-sm active:scale-[0.99] sm:flex-initial"
+          >
+            네이버 길찾기
+          </a>
+          <a
+            href={tmapNavigationRouteUrl(event.location)}
+            className="inline-flex min-w-[120px] flex-1 items-center justify-center gap-1 rounded-xl border border-sky-200 bg-white px-3 py-2.5 text-xs font-bold text-sky-800 shadow-sm active:scale-[0.99] sm:flex-initial"
+          >
+            T맵 네비
+          </a>
+        </div>
+      )}
       <div className="p-4">
         <h3 className="text-lg font-bold text-gray-900 leading-snug">{event.title}</h3>
         <div className="mt-2.5 space-y-2">
@@ -730,7 +899,12 @@ function ShareEventPanel({event,canEdit,guestName,onGuestNameChange,newComment,c
             ? <p className="flex items-center gap-2 text-sm text-gray-600"><svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>{fmtDate(event.startAt)} · 하루 종일</p>
             : <p className="flex items-center gap-2 text-sm text-gray-600"><svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{fmtDate(event.startAt)} {fmtTime(event.startAt)}{event.endAt?<> ~{isMulti?` ${fmtDate(event.endAt)}`:""} {fmtTime(event.endAt)}</>:null}</p>
           }
-          {event.location&&<p className="flex items-center gap-2 text-sm text-gray-600"><svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>{event.location}</p>}
+          {event.location&&(
+            <div className="space-y-1.5">
+              <p className="flex items-center gap-2 text-sm text-gray-600"><svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>{event.location}</p>
+              <p className="text-[11px] text-gray-400">위에서 <strong className="text-gray-600">길찾기</strong>를 누르면 바로 내비로 이동해요.</p>
+            </div>
+          )}
           {event.url&&<a href={event.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-indigo-600 hover:underline"><svg className="h-4 w-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg><span className="truncate">{event.url}</span></a>}
         </div>
         {event.description&&<div className="mt-3 rounded-xl bg-gray-50 px-3 py-2.5"><p className="text-xs leading-relaxed text-gray-500 whitespace-pre-wrap">{event.description}</p></div>}
@@ -738,7 +912,7 @@ function ShareEventPanel({event,canEdit,guestName,onGuestNameChange,newComment,c
         {/* Join CTA */}
         <div className="mt-3 rounded-xl bg-indigo-50 border border-indigo-100 p-3 text-center">
           <p className="text-xs text-indigo-600 mb-2">내 캘린더를 만들고 싶으신가요?</p>
-          <Link href="/register" className="text-xs font-bold text-indigo-700 underline">무료로 SyncNest 시작하기</Link>
+          <Link href="/register" replace className="text-xs font-bold text-indigo-700 underline">무료로 SyncNest 시작하기</Link>
         </div>
       </div>
       {/* Comments */}

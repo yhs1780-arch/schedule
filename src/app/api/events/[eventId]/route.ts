@@ -1,12 +1,46 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { canEditEvent, getCurrentUser } from "@/lib/auth";
+import { canEditEvent, canViewCalendar, getCurrentUser } from "@/lib/auth";
 import { getGoogleCalendarClient } from "@/lib/google-calendar";
 
 type Ctx = { params: Promise<{ eventId: string }> };
 
 function unauthorized() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+
+export async function GET(_request: Request, context: Ctx) {
+  const user = await getCurrentUser();
+  if (!user) return unauthorized();
+
+  const { eventId } = await context.params;
+  const minimal = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, calendarId: true },
+  });
+  if (!minimal) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const canView = await canViewCalendar(user.id, user.role, minimal.calendarId);
+  if (!canView) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    include: {
+      comments: {
+        orderBy: { createdAt: "asc" },
+        include: { author: { select: { id: true, name: true } } },
+      },
+      activities: {
+        orderBy: { createdAt: "asc" },
+        include: { actor: { select: { id: true, name: true } } },
+      },
+      createdBy: { select: { id: true, name: true } },
+      reactions: { orderBy: { createdAt: "asc" } },
+    },
+  });
+  if (!event) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  return NextResponse.json({ event });
 }
 
 /** 캘린더 OWNER 찾기 (본인이 아닌 경우에만 알림 생성) */
@@ -168,10 +202,15 @@ export async function PATCH(request: Request, context: Ctx) {
       endAt: prevEvent.endAt?.toISOString() ?? null,
       allDay: prevEvent.allDay,
       location: prevEvent.location,
+      locationDetail: prevEvent.locationDetail,
       description: prevEvent.description,
       url: prevEvent.url,
       reminderMinutes: prevEvent.reminderMinutes,
       calendarId: prevEvent.calendarId,
+      tags: prevEvent.tags,
+      isTask: prevEvent.isTask,
+      isDone: prevEvent.isDone,
+      guestName: prevEvent.guestName,
     },
   });
 
@@ -220,10 +259,15 @@ export async function DELETE(_request: Request, context: Ctx) {
       endAt: event.endAt?.toISOString() ?? null,
       allDay: event.allDay,
       location: event.location,
+      locationDetail: event.locationDetail,
       description: event.description,
       url: event.url,
       reminderMinutes: event.reminderMinutes,
       calendarId: event.calendarId,
+      tags: event.tags,
+      isTask: event.isTask,
+      isDone: event.isDone,
+      guestName: event.guestName,
     },
   });
 

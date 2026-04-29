@@ -1,5 +1,8 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { allowShareRequest } from "@/lib/share-token";
+import { requireCalendarShareForGuest } from "@/lib/share-guest-access";
+
+export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ token: string }> };
 
@@ -13,13 +16,22 @@ function icsDate(d: Date, allDay?: boolean) {
 
 function escICS(s: string) { return s.replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\n/g,"\\n"); }
 
-export async function GET(_req: Request, ctx: Ctx) {
+export async function GET(request: Request, ctx: Ctx) {
   const { token } = await ctx.params;
+  if (!allowShareRequest(request, token)) {
+    return new Response("Too Many Requests", { status: 429 });
+  }
+
+  const access = await requireCalendarShareForGuest(request, token);
+  if (!access.ok) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
   const cal = await prisma.calendar.findUnique({
-    where: { shareToken: token },
+    where: { id: access.calendarId },
     include: { events: { orderBy: { startAt: "asc" } } },
   });
-  if (!cal) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!cal) return new Response("Not found", { status: 404 });
 
   const lines: string[] = [
     "BEGIN:VCALENDAR",

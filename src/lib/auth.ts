@@ -2,11 +2,35 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
-export async function getCurrentUser() {
+const sessionUserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  image: true,
+  role: true,
+  slug: true,
+  emailVerified: true,
+} as const;
+
+export type SessionUser = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  image: string | null;
+  role: string;
+  slug: string | null;
+  emailVerified: Date | null;
+};
+
+/** 세션 기반 API용 — 불필요한 컬럼(비밀번호 해시 등) 제외로 DB·직렬화 부담 감소 */
+export async function getCurrentUser(): Promise<SessionUser | null> {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id;
   if (!userId) return null;
-  return prisma.user.findUnique({ where: { id: userId } });
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: sessionUserSelect,
+  });
 }
 
 export async function canViewCalendar(userId: string, userRole: string, calendarId: string) {

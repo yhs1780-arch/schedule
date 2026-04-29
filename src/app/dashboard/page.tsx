@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import { useNotificationScheduler, requestNotificationPermission } from "@/hooks/useNotificationScheduler";
 import { playSound, SOUND_LABELS, type SoundType } from "@/lib/notification-sound";
 import { parseNL, summarizeParsed, type ParsedEvent } from "@/lib/nlp";
+import { useOverlayHistoryStack } from "@/hooks/useOverlayHistoryStack";
+import { AddressField } from "@/components/AddressField";
 import {
   CAL_COLORS,
   resolveCalendarColor as colOf,
@@ -15,6 +17,7 @@ import {
   normalizeCalendarColor,
   isStoredHexColor,
 } from "@/lib/calendar-colors";
+import { naverMapSearchUrl, tmapAppSearchUrl, tmapWebSearchUrl, navigationSearchQuery } from "@/lib/directions-links";
 
 /* ─── AutoTextarea ───────────────────────────────────────────────── */
 function AutoTextarea({ value, onChange, placeholder, className, minRows = 1, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number }) {
@@ -28,131 +31,6 @@ function AutoTextarea({ value, onChange, placeholder, className, minRows = 1, ..
     <textarea ref={ref} value={value} onChange={onChange} placeholder={placeholder}
       className={`resize-none overflow-hidden leading-6 ${className ?? ""}`}
       rows={minRows} {...props}/>
-  );
-}
-
-/* ─── AddressField: 인라인 카카오 주소 검색 ─────────────────────── */
-declare global {
-  interface Window {
-    daum?: {
-      Postcode: new (opts: {
-        q?: string;
-        oncomplete: (d: { roadAddress: string; jibunAddress: string }) => void;
-        width?: string | number; height?: string | number;
-      }) => { open(): void; embed(el: HTMLElement, opts?: { autoClose?: boolean }): void };
-    };
-  }
-}
-
-function AddressField({ value, onChange, detail, onDetailChange }: {
-  value: string; onChange: (v: string) => void;
-  detail: string; onDetailChange: (v: string) => void;
-}) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const embedRef = useRef<HTMLDivElement>(null);
-
-  function mountEmbed(q?: string) {
-    const el = embedRef.current;
-    if (!el) return;
-    el.innerHTML = "";
-    const run = () => {
-      new window.daum!.Postcode({
-        q: q?.trim() || undefined,
-        oncomplete(data) {
-          onChange(data.roadAddress || data.jibunAddress);
-          setModalOpen(false);
-        },
-        width: "100%",
-        height: "100%",
-      }).embed(el, { autoClose: true });
-    };
-    if (window.daum?.Postcode) run();
-    else {
-      const s = document.createElement("script");
-      s.src = "https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js";
-      s.onload = run;
-      document.head.appendChild(s);
-    }
-  }
-
-  useEffect(() => {
-    if (!modalOpen) return;
-    // 모달 열리면 Kakao embed 마운트 (현재 값으로 자동 검색 키워드 설정)
-    setTimeout(() => mountEmbed(value || undefined), 80);
-  }, [modalOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <>
-      {/* ─── 메인 필드: 주소 선택 전 ─── */}
-      {!value ? (
-        <button type="button" onClick={() => setModalOpen(true)}
-          className="flex w-full items-center gap-2.5 rounded-xl border border-dashed border-gray-300 px-3 py-3 text-left text-sm text-gray-400 hover:border-indigo-400 hover:bg-indigo-50/40 hover:text-indigo-500 transition group">
-          <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100 text-base group-hover:bg-indigo-100">📍</span>
-          <div>
-            <p className="text-sm font-medium group-hover:text-indigo-600">위치 추가</p>
-            <p className="text-[10px] text-gray-300">도로명·지역명·지하철역 검색</p>
-          </div>
-        </button>
-      ) : (
-        /* ─── 주소 선택 후 ─── */
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
-          <div className="flex items-start gap-2">
-            <span className="mt-0.5 text-base flex-shrink-0">📍</span>
-            <div className="flex-1 min-w-0">
-              <button type="button" onClick={() => setModalOpen(true)} className="w-full text-left">
-                <p className="text-sm font-semibold text-gray-800 leading-snug hover:text-indigo-600 transition">{value}</p>
-                {detail && <p className="text-xs text-gray-500 mt-0.5">{detail}</p>}
-              </button>
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              <a href={`https://map.kakao.com/link/search/${encodeURIComponent(value)}`} target="_blank" rel="noreferrer"
-                title="카카오맵에서 보기"
-                className="flex items-center gap-1 rounded-lg border border-amber-200 bg-white px-2 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-50 transition">
-                🗺️ 지도
-              </a>
-              <button type="button" onClick={() => setModalOpen(true)} title="주소 변경"
-                className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] font-medium text-gray-500 hover:bg-gray-50 transition">
-                변경
-              </button>
-              <button type="button" onClick={() => { onChange(""); onDetailChange(""); }}
-                className="rounded-lg p-1 text-gray-300 hover:text-red-400 hover:bg-red-50 transition">
-                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
-          </div>
-          {/* 상세 주소 */}
-          <input value={detail} onChange={e => onDetailChange(e.target.value)}
-            placeholder="상세 주소 입력 (동/호수/층 등, 선택)"
-            className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs outline-none placeholder:text-gray-300 focus:border-indigo-400"/>
-        </div>
-      )}
-
-      {/* ─── 주소 검색 모달 (Kakao embed 전용 — 입력창 1개) ─── */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-[3000] flex flex-col items-center justify-end sm:justify-center" style={{padding:"0"}}>
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setModalOpen(false)}/>
-          <div className="relative z-10 flex w-full flex-col bg-white shadow-2xl sm:max-w-lg sm:rounded-2xl"
-            style={{ height: "min(600px, 88dvh)", borderRadius: "20px 20px 0 0" }}
-            onClick={e => e.stopPropagation()}>
-            <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">📍</span>
-                <div>
-                  <h3 className="text-sm font-bold text-gray-900">주소 검색</h3>
-                  <p className="text-[10px] text-gray-400">도로명 · 지번 · 건물명 · 지하철역 검색 가능</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setModalOpen(false)}
-                className="rounded-xl p-2 text-gray-400 hover:bg-gray-100">
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
-            {/* Kakao Postcode Embed — 입력창은 Kakao 위젯 자체의 것만 사용 */}
-            <div ref={embedRef} className="flex-1 overflow-hidden"/>
-          </div>
-        </div>
-      )}
-    </>
   );
 }
 
@@ -407,6 +285,8 @@ export default function DashboardPage() {
   const [calMultiSelected, setCalMultiSelected] = useState<Set<string>>(new Set());
   const [multiShareLink, setMultiShareLink] = useState<{token:string;role:string}|null>(null);
   const [multiShareRole, setMultiShareRole] = useState<"VIEWER"|"EDITOR">("VIEWER");
+  const [multiShareExpiresDays, setMultiShareExpiresDays] = useState("");
+  const [multiShareGuestApproval, setMultiShareGuestApproval] = useState(true);
   const [multiShareLoading, setMultiShareLoading] = useState(false);
   const [showMultiShareModal, setShowMultiShareModal] = useState(false);
   const [editCalName, setEditCalName] = useState(""); const [editCalColor, setEditCalColor] = useState("");
@@ -422,6 +302,31 @@ export default function DashboardPage() {
   const [shareLink, setShareLink] = useState<{token:string;role:string}|null>(null);
   const [shareLinkRole, setShareLinkRole] = useState<"VIEWER"|"EDITOR">("VIEWER");
   const [shareLinkLoading, setShareLinkLoading] = useState(false);
+  type ShareVisitorRow = {
+    id: string;
+    visitorKey: string;
+    firstSeenAt: string;
+    lastSeenAt: string;
+    accessCount: number;
+    ownerLabel: string | null;
+    guestDisplayName?: string | null;
+    approvalStatus?: string;
+    guestRole?: string | null;
+  };
+  type ShareLinkRow = {
+    id: string;
+    token: string;
+    shareRole: string;
+    guestApprovalRequired?: boolean;
+    label: string | null;
+    expiresAt: string | null;
+    createdAt: string;
+    visitors: ShareVisitorRow[];
+  };
+  const [shareLinksList, setShareLinksList] = useState<ShareLinkRow[]>([]);
+  const [newLinkLabel, setNewLinkLabel] = useState("");
+  const [newLinkExpiresDays, setNewLinkExpiresDays] = useState("");
+  const [newLinkGuestApproval, setNewLinkGuestApproval] = useState(true);
   const [inviteByEmail, setInviteByEmail] = useState(""); const [inviteByEmailSending, setInviteByEmailSending] = useState(false); const [inviteByEmailMsg, setInviteByEmailMsg] = useState<{ok:boolean;text:string}|null>(null);
 
   /* ── event edit ── */
@@ -446,6 +351,7 @@ export default function DashboardPage() {
   const [syncNotifs, setSyncNotifs] = useState<SyncNotification[]>([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [rollingBack, setRollingBack] = useState<string|null>(null);
+  const [deletingNotifId, setDeletingNotifId] = useState<string|null>(null);
 
   /* ── init ── */
   useEffect(() => { if (status==="unauthenticated") router.replace("/login"); }, [status, router]);
@@ -478,7 +384,7 @@ export default function DashboardPage() {
 
   const load = useCallback(async (silent = false) => {
     try {
-      const res = await fetch("/api/events"); if (!res.ok) return;
+      const res = await fetch("/api/events", { cache: "no-store" }); if (!res.ok) return;
       const data = (await res.json()) as {user?:AuthUser;calendars?:Calendar[]};
       const u = data.user ?? null; const cals = data.calendars ?? [];
       setViewer(u); setCalendars(cals);
@@ -580,6 +486,67 @@ export default function DashboardPage() {
   const selectedCal = selected?calendars.find(c=>c.id===selected.calendarId)??null:null;
   const canEdit:boolean = !!viewer&&!!selected&&(viewer.role==="OWNER"||selected.createdById===viewer.id||(selectedCal?.members.some(m=>m.user.id===viewer.id&&(m.role==="OWNER"||m.role==="EDITOR"))??false));
   const shareCal = shareCalId?calendars.find(c=>c.id===shareCalId)??null:null;
+
+  const dashOverlaySnap = useRef({
+    tourActive: false,
+    shareCalId: null as string | null,
+    showMultiShareModal: false,
+    showCalModal: false,
+    editingCal: false,
+    confirmDeleteCal: false,
+    showNotifPanel: false,
+    dndConfirm: null as { ev: FlatEvent; targetDate: string } | null,
+    confirmDelete: false,
+    editMode: false,
+    daySummaryDate: null as string | null,
+    selectedId: null as string | null,
+  });
+  dashOverlaySnap.current = {
+    tourActive,
+    shareCalId,
+    showMultiShareModal,
+    showCalModal,
+    editingCal: !!editingCal,
+    confirmDeleteCal,
+    showNotifPanel,
+    dndConfirm,
+    confirmDelete,
+    editMode,
+    daySummaryDate,
+    selectedId,
+  };
+
+  const popDashOverlay = useCallback(() => {
+    const s = dashOverlaySnap.current;
+    if (s.tourActive) { setTourActive(false); return; }
+    if (s.shareCalId) { setShareCalId(null); return; }
+    if (s.showMultiShareModal) { setShowMultiShareModal(false); setMultiShareLink(null); return; }
+    if (s.showCalModal) { setShowCalModal(false); return; }
+    if (s.editingCal) { setEditingCal(null); return; }
+    if (s.confirmDeleteCal) { setConfirmDeleteCal(false); return; }
+    if (s.showNotifPanel) { setShowNotifPanel(false); return; }
+    if (s.dndConfirm) { setDndConfirm(null); return; }
+    if (s.confirmDelete) { setConfirmDelete(false); return; }
+    if (s.editMode) { setEditMode(false); return; }
+    if (s.daySummaryDate) { setDaySummaryDate(null); return; }
+    if (s.selectedId) { setSelectedId(null); }
+  }, []);
+
+  const dashOverlayDepth =
+    (tourActive ? 1 : 0) +
+    (shareCalId ? 1 : 0) +
+    (showMultiShareModal ? 1 : 0) +
+    (showCalModal ? 1 : 0) +
+    (editingCal ? 1 : 0) +
+    (confirmDeleteCal ? 1 : 0) +
+    (showNotifPanel ? 1 : 0) +
+    (dndConfirm ? 1 : 0) +
+    (confirmDelete ? 1 : 0) +
+    (editMode ? 1 : 0) +
+    (daySummaryDate ? 1 : 0) +
+    (selectedId ? 1 : 0);
+
+  useOverlayHistoryStack(dashOverlayDepth, popDashOverlay);
 
   /* ── recent events: localStorage 기반 최근 10개 ── */
   type RecentEvent = {id:string;title:string;calendarId:string;location?:string|null;startAt:string};
@@ -783,23 +750,89 @@ export default function DashboardPage() {
     try { await fetch(`/api/events/${selected.id}`,{method:"DELETE"}); } catch{ void load(); }
   }
 
-  async function generateShareLink(calId: string) {
-    setShareLinkLoading(true);
-    const res = await fetch(`/api/calendars/${calId}/share-link`, {
-      method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({shareRole: shareLinkRole}),
-    });
-    const d = (await res.json()) as {token?:string;shareRole?:string};
-    if (d.token) setShareLink({token:d.token,role:d.shareRole??"VIEWER"});
-    setShareLinkLoading(false);
+  async function loadShareLinksList(calId: string) {
+    const res = await fetch(`/api/calendars/${calId}/share-links`);
+    if (!res.ok) return;
+    const d = (await res.json()) as { links?: ShareLinkRow[] };
+    const list = d.links ?? [];
+    setShareLinksList(list);
+    const first = list[0];
+    if (first) setShareLink({ token: first.token, role: first.shareRole });
+    else setShareLink(null);
   }
 
-  async function revokeShareLink(calId: string) {
+  async function generateShareLink(calId: string) {
     setShareLinkLoading(true);
-    await fetch(`/api/calendars/${calId}/share-link`, {
-      method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({revoke: true}),
+    try {
+      const res = await fetch(`/api/calendars/${calId}/share-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shareRole: shareLinkRole,
+          label: newLinkLabel.trim() || undefined,
+          expiresInDays: newLinkExpiresDays.trim() ? Math.min(3650, parseInt(newLinkExpiresDays, 10) || 0) : null,
+          guestApprovalRequired: newLinkGuestApproval,
+        }),
+      });
+      const d = (await res.json()) as { token?: string; shareRole?: string };
+      if (d.token) setShareLink({ token: d.token, role: d.shareRole ?? "VIEWER" });
+      setNewLinkLabel("");
+      setNewLinkExpiresDays("");
+      await loadShareLinksList(calId);
+    } finally {
+      setShareLinkLoading(false);
+    }
+  }
+
+  async function revokeShareLink(calId: string, linkId?: string) {
+    setShareLinkLoading(true);
+    try {
+      await fetch(`/api/calendars/${calId}/share-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(linkId ? { revoke: true, linkId } : { revoke: true }),
+      });
+      setShareLink(null);
+      await loadShareLinksList(calId);
+    } finally {
+      setShareLinkLoading(false);
+    }
+  }
+
+  async function updateVisitorName(calId: string, linkId: string, visitorId: string, ownerLabel: string) {
+    await fetch(`/api/calendars/${calId}/share-links/${linkId}/visitors/${visitorId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerLabel }),
     });
-    setShareLink(null);
-    setShareLinkLoading(false);
+    await loadShareLinksList(calId);
+  }
+
+  async function patchCalVisitorApproval(
+    calId: string,
+    linkId: string,
+    visitorId: string,
+    patch: { ownerLabel?: string; approvalStatus?: "APPROVED" | "REVOKED" | "PENDING"; guestRole?: "VIEWER" | "EDITOR" | null },
+  ) {
+    await fetch(`/api/calendars/${calId}/share-links/${linkId}/visitors/${visitorId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    await loadShareLinksList(calId);
+  }
+
+  async function patchShareLinkSettings(
+    calId: string,
+    linkId: string,
+    data: { shareRole?: "VIEWER" | "EDITOR"; expiresInDays?: number | null; label?: string | null; guestApprovalRequired?: boolean },
+  ) {
+    await fetch(`/api/calendars/${calId}/share-links/${linkId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    await loadShareLinksList(calId);
   }
 
   async function sendLinkByEmail(calId: string) {
@@ -878,7 +911,7 @@ export default function DashboardPage() {
     try {
       const res = await fetch(`/api/notifications/${notifId}/rollback`, { method: "POST" });
       const d = (await res.json()) as { ok?: boolean; error?: string; type?: string };
-      if (res.ok) {
+      if (res.ok && d.ok) {
         setSyncNotifs(p => p.filter(n => n.id !== notifId));
         void load(true); // 롤백 후 데이터 갱신
       } else {
@@ -886,6 +919,22 @@ export default function DashboardPage() {
       }
     } catch { alert("오류가 발생했습니다."); }
     finally { setRollingBack(null); }
+  }
+
+  async function deleteEventFromNotif(notifId: string) {
+    if (!confirm("이 일정을 완전히 삭제할까요?")) return;
+    setDeletingNotifId(notifId);
+    try {
+      const res = await fetch(`/api/notifications/${notifId}/delete-event`, { method: "POST" });
+      const d = (await res.json()) as { ok?: boolean; error?: string };
+      if (res.ok && d.ok) {
+        setSyncNotifs(p => p.filter(n => n.id !== notifId));
+        void load(true);
+      } else {
+        alert(d.error ?? "삭제에 실패했습니다.");
+      }
+    } catch { alert("오류가 발생했습니다."); }
+    finally { setDeletingNotifId(null); }
   }
 
   async function markAllNotifRead() {
@@ -951,7 +1000,47 @@ export default function DashboardPage() {
     if(calendars[0]&&!evCalId) setEvCalId(calendars[0].id);
     setShowEventModal(true);
   }
-  function openEvent(id:string){setSelectedId(id);setEditMode(false);setComment("");setDaySummaryDate(null);}
+  function openEvent(id:string){
+    setSelectedId(id);setEditMode(false);setComment("");setDaySummaryDate(null);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/events/${id}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { event: EventItem };
+        const ev = data.event;
+        setCalendars(prev => prev.map(c => ({
+          ...c,
+          events: c.events.map(e =>
+            e.id === id
+              ? { ...e, comments: ev.comments, activities: ev.activities, reactions: ev.reactions ?? e.reactions }
+              : e,
+          ),
+        })));
+      } catch { /* ignore */ }
+    })();
+  }
+  async function toggleTaskDone(ev: FlatEvent) {
+    const prev = !!ev.isDone;
+    const next = !prev;
+    setCalendars(p => p.map(c => ({
+      ...c,
+      events: c.events.map(e => (e.id === ev.id ? { ...e, isDone: next } : e)),
+    })));
+    try {
+      const res = await fetch(`/api/events/${ev.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isDone: next }),
+      });
+      if (!res.ok) throw new Error("fail");
+    } catch {
+      setCalendars(p => p.map(c => ({
+        ...c,
+        events: c.events.map(e => (e.id === ev.id ? { ...e, isDone: prev } : e)),
+      })));
+    }
+  }
+
   function startEdit(e:FlatEvent){setEditMode(true);setEditTitle(e.title);setEditAllDay(e.allDay??false);setEditSD(isoToDate(e.startAt));setEditST(isoToTime(e.startAt));setEditED(e.endAt?isoToDate(e.endAt):"");setEditET(e.endAt?isoToTime(e.endAt):"");setEditLoc(e.location??"");setEditLocDetail(e.locationDetail??"");setEditDesc(e.description??"");setEditTags(parseEventTags(e.tags).join(", "));setEditUrl(e.url??"");setEditReminders(e.reminderMinutes?e.reminderMinutes.split(",").map(Number).filter(Boolean):[]);setEditCalId(e.calendarId);setConfirmDelete(false);}
 
   function handleDayClick(dateStr:string){
@@ -1123,10 +1212,18 @@ export default function DashboardPage() {
                                 <p className="text-xs text-gray-700 leading-relaxed">{n.message}</p>
                                 <p className="mt-0.5 text-[10px] text-gray-400">{new Date(n.createdAt).toLocaleString("ko-KR",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",hour12:false})}</p>
                                 {n.snapshot&&(n.type==="event_edited"||n.type==="event_deleted")&&(
-                                  <button onClick={()=>void rollbackNotif(n.id)} disabled={rollingBack===n.id}
-                                    className="mt-1.5 rounded-lg bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-200 disabled:opacity-50 transition">
-                                    {rollingBack===n.id?"롤백 중...":snap?._deleted?"🔄 일정 복원":"↩️ 변경 롤백"}
-                                  </button>
+                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    <button type="button" onClick={()=>void rollbackNotif(n.id)} disabled={rollingBack===n.id||deletingNotifId===n.id}
+                                      className="rounded-lg bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-800 hover:bg-amber-200 disabled:opacity-50 transition">
+                                      {rollingBack===n.id?"처리 중…":snap?._deleted?"🔄 일정 복원":"↩️ 되돌리기"}
+                                    </button>
+                                    {n.type==="event_edited"&&(
+                                      <button type="button" onClick={()=>void deleteEventFromNotif(n.id)} disabled={rollingBack===n.id||deletingNotifId===n.id}
+                                        className="rounded-lg bg-red-50 px-2.5 py-1 text-[10px] font-bold text-red-700 hover:bg-red-100 disabled:opacity-50 transition">
+                                        {deletingNotifId===n.id?"삭제 중…":"🗑️ 일정 삭제"}
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -1270,7 +1367,7 @@ export default function DashboardPage() {
                             <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                           </button>
                           {isOwner&&(
-                            <button onClick={()=>{setShareCalId(c.id);setInviteEmail("");setInviteMsg(null);setShareLink(null);void fetch(`/api/calendars/${c.id}/share-link`).then(r=>r.json()).then((d:{token?:string;shareRole?:string})=>{if(d.token)setShareLink({token:d.token,role:d.shareRole??"VIEWER"});});}} title="멤버 관리"
+                            <button onClick={()=>{setShareCalId(c.id);setInviteEmail("");setInviteMsg(null);setShareLink(null);setNewLinkLabel("");setNewLinkExpiresDays("");void loadShareLinksList(c.id);}} title="멤버 관리"
                               className="flex-shrink-0 rounded-lg p-1.5 text-gray-300 hover:bg-indigo-50 hover:text-indigo-500 transition">
                               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
                             </button>
@@ -1290,6 +1387,10 @@ export default function DashboardPage() {
               <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01"/></svg>
               사용 가이드
             </button>
+            <Link href="/dashboard/share-links" className="mt-1 flex w-full items-center gap-2 rounded-xl px-2 py-2 text-sm text-indigo-600 hover:bg-indigo-50 transition">
+              <span className="text-base">🔗</span>
+              공유 링크 전체 관리
+            </Link>
           </div>
         </aside>
 
@@ -1371,6 +1472,7 @@ export default function DashboardPage() {
                 onSave={()=>void saveEdit()} onCommentChange={setComment} onAddComment={()=>void addComment()}
                 onDelete={()=>setConfirmDelete(true)} onClose={()=>setSelectedId(null)}
                 onDuplicate={()=>void duplicateEvent(selected)}
+                onToggleTaskDone={toggleTaskDone}
                 calendars={calendars} editCalId={editCalId} onEditCalChange={setEditCalId}/>
             </aside>
           </>
@@ -1822,51 +1924,122 @@ export default function DashboardPage() {
               ))}
             </div>
           </div>
-          {/* ── 링크로 공유 ── */}
+          {/* ── 링크로 공유 (다중 링크 + 접속자) ── */}
           <div className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50 p-3">
-            <p className="mb-2 text-xs font-bold text-indigo-700">🔗 링크로 공유 (비회원 포함)</p>
-            <div className="flex gap-2 mb-2">
-              <div className="flex flex-1 items-center gap-2 rounded-lg border border-indigo-200 bg-white px-2 py-1.5">
-                <span className="text-xs text-gray-500 flex-shrink-0">권한:</span>
-                {(["VIEWER","EDITOR"] as const).map(r=>(
-                  <button key={r} onClick={()=>setShareLinkRole(r)} className={`rounded-md px-2 py-0.5 text-xs font-medium transition ${shareLinkRole===r?"bg-indigo-600 text-white":"text-gray-500 hover:bg-gray-100"}`}>
-                    {r==="EDITOR"?"편집":"보기"}
-                  </button>
+            <p className="mb-1 text-xs font-bold text-indigo-700">🔗 공유 링크 (비회원)</p>
+            <p className="mb-2 text-[10px] leading-relaxed text-indigo-800/80">캘린더마다 여러 링크를 두고, 링크마다 권한·만료를 다르게 설정할 수 있어요. 공유 직후 접속이 보이면 이름을 붙여 두면 관리하기 쉬워요.</p>
+            <div className="mb-2 space-y-1.5 rounded-lg border border-indigo-200 bg-white p-2">
+              <input value={newLinkLabel} onChange={e=>setNewLinkLabel(e.target.value)} placeholder="이 링크 메모 (예: 3번팀용, 선택)" className="w-full rounded border border-gray-100 px-2 py-1.5 text-xs outline-none focus:border-indigo-300"/>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-gray-500">만료(일)</span>
+                  <input value={newLinkExpiresDays} onChange={e=>setNewLinkExpiresDays(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="무제한" className="w-16 rounded border border-gray-100 px-1.5 py-1 text-xs"/>
+                </div>
+                <div className="flex items-center gap-1 rounded border border-gray-100 px-1.5 py-0.5">
+                  {(["VIEWER","EDITOR"] as const).map(r=>(
+                    <button key={r} type="button" onClick={()=>setShareLinkRole(r)} className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${shareLinkRole===r?"bg-indigo-600 text-white":"text-gray-500"}`}>{r==="EDITOR"?"편집":"보기"}</button>
+                  ))}
+                </div>
+                <label className="flex cursor-pointer items-center gap-1 text-[10px] text-gray-600">
+                  <input type="checkbox" checked={newLinkGuestApproval} onChange={e=>setNewLinkGuestApproval(e.target.checked)} className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"/>
+                  이름·승인 필요
+                </label>
+                <button type="button" onClick={()=>void generateShareLink(shareCalId)} disabled={shareLinkLoading} className="ml-auto rounded-lg bg-indigo-600 px-2.5 py-1.5 text-[10px] font-bold text-white disabled:opacity-40">{shareLinkLoading?"...":"새 링크 만들기"}</button>
+              </div>
+            </div>
+            {shareLinksList.length>0&&(
+              <div className="mb-2 max-h-56 space-y-2 overflow-y-auto pr-0.5">
+                {shareLinksList.map(link=>(
+                  <div key={link.id} className="rounded-lg border border-indigo-200/80 bg-white p-2 text-[10px]">
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <input
+                          defaultValue={link.label ?? ""}
+                          onBlur={e => {
+                            const t = e.target.value.trim();
+                            const cur = link.label ?? "";
+                            if (t !== cur) void patchShareLinkSettings(shareCalId, link.id, { label: t || null });
+                          }}
+                          placeholder="링크 메모"
+                          className="w-full rounded border border-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-800"
+                        />
+                        <p className="mt-0.5 break-all text-gray-600">{typeof window!=="undefined"?window.location.origin:""}/share/{link.token}</p>
+                        <p className="mt-0.5 text-indigo-600">{link.shareRole==="EDITOR"?"편집":"보기"} · {link.expiresAt?`${new Date(link.expiresAt).toLocaleDateString("ko-KR")} 만료`:"기한 없음"} · {link.guestApprovalRequired===true?"승인 필요":"바로 열람"}</p>
+                        <button type="button" onClick={()=>void patchShareLinkSettings(shareCalId, link.id, { guestApprovalRequired: link.guestApprovalRequired !== true })}
+                          className="mt-1 rounded border border-indigo-100 bg-white px-1.5 py-0.5 text-[9px] font-semibold text-indigo-600 hover:bg-indigo-50">
+                          {link.guestApprovalRequired===true?"바로 열람으로 전환":"승인 필요로 전환"}
+                        </button>
+                        <div className="flex flex-wrap items-center gap-0.5">
+                          <span className="text-[9px] text-gray-400">만료:</span>
+                          <button type="button" onClick={()=>void patchShareLinkSettings(shareCalId, link.id, { expiresInDays: 7 })} className="rounded border border-gray-100 bg-white px-1 py-0.5 text-[9px] text-gray-600 hover:border-indigo-200">7일</button>
+                          <button type="button" onClick={()=>void patchShareLinkSettings(shareCalId, link.id, { expiresInDays: 30 })} className="rounded border border-gray-100 bg-white px-1 py-0.5 text-[9px] text-gray-600 hover:border-indigo-200">30일</button>
+                          <button type="button" onClick={()=>void patchShareLinkSettings(shareCalId, link.id, { expiresInDays: null })} className="rounded border border-gray-100 bg-white px-1 py-0.5 text-[9px] text-gray-600 hover:border-indigo-200">무제한</button>
+                        </div>
+                      </div>
+                      <div className="flex flex-shrink-0 flex-col items-end gap-0.5">
+                        <button type="button" onClick={()=>void navigator.clipboard.writeText(`${typeof window!=="undefined"?window.location.origin:""}/share/${link.token}`)} className="rounded bg-indigo-100 px-1.5 py-0.5 text-indigo-700">복사</button>
+                        <button type="button" onClick={()=>void patchShareLinkSettings(shareCalId, link.id, { shareRole: link.shareRole==="EDITOR"?"VIEWER":"EDITOR" })} className="text-gray-500">{link.shareRole==="EDITOR"?"권한: 보기로":"권한: 편집으로"}</button>
+                        <button type="button" onClick={()=>void revokeShareLink(shareCalId, link.id)} className="text-red-500">링크 끄기</button>
+                      </div>
+                    </div>
+                    {link.visitors.length>0&&(
+                      <div className="mt-2 border-t border-gray-100 pt-1.5">
+                        <p className="mb-1 text-[9px] font-bold uppercase text-gray-500">접속 기기</p>
+                        {link.visitors.map(v=>(
+                          <div key={v.id} className="mb-2 rounded border border-gray-50 bg-gray-50/50 p-1.5">
+                            <div className="mb-1 flex flex-wrap items-center gap-1">
+                            <input defaultValue={v.ownerLabel??""} onBlur={e=>{const t=e.target.value.trim(); if(t!==(v.ownerLabel??"")) void updateVisitorName(shareCalId, link.id, v.id, t);}} placeholder="이름 붙이기" className="min-w-0 flex-1 rounded border border-gray-100 px-1.5 py-0.5 text-[10px]"/>
+                            <span className="text-[9px] text-gray-400">첫 접속 {new Date(v.firstSeenAt).toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})} · {v.accessCount}회</span>
+                            {Date.now()-new Date(v.lastSeenAt).getTime()<120_000&&<span className="rounded-full bg-emerald-100 px-1 py-0.5 text-[8px] font-bold text-emerald-700">방금</span>}
+                            <span className="text-[9px] text-gray-400">최근 {new Date(v.lastSeenAt).toLocaleString("ko-KR",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span>
+                            </div>
+                            {(v.guestDisplayName || v.approvalStatus) && (
+                              <p className="mb-1 text-[9px] text-gray-500">
+                                요청명: <strong>{v.guestDisplayName ?? "—"}</strong>
+                                {v.approvalStatus && <> · 상태: <strong>{v.approvalStatus}</strong></>}
+                                {v.guestRole && <> · 역할: {v.guestRole}</>}
+                              </p>
+                            )}
+                            {link.guestApprovalRequired===true && (
+                              <div className="flex flex-wrap gap-1">
+                                {v.approvalStatus==="PENDING"&&(
+                                  <button type="button" onClick={()=>void patchCalVisitorApproval(shareCalId, link.id, v.id, { approvalStatus: "APPROVED" })} className="rounded bg-emerald-600 px-1.5 py-0.5 text-[9px] font-bold text-white">승인</button>
+                                )}
+                                {v.approvalStatus!=="REVOKED"&&(
+                                  <button type="button" onClick={()=>void patchCalVisitorApproval(shareCalId, link.id, v.id, { approvalStatus: "REVOKED" })} className="rounded border border-red-200 bg-white px-1.5 py-0.5 text-[9px] font-medium text-red-600">차단</button>
+                                )}
+                                {(v.approvalStatus==="APPROVED"||v.approvalStatus==="AUTO")&&(
+                                  <button type="button" onClick={()=>void patchCalVisitorApproval(shareCalId, link.id, v.id, { guestRole: (v.guestRole ?? link.shareRole)==="EDITOR"?"VIEWER":"EDITOR" })} className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[9px] text-gray-600">
+                                    게스트 권한: {(v.guestRole ?? link.shareRole)==="EDITOR"?"편집→보기":"보기→편집"}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
-              <button onClick={()=>void generateShareLink(shareCalId)} disabled={shareLinkLoading}
-                className="flex-shrink-0 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40">
-                {shareLinkLoading?"...":(shareLink?"재생성":"링크 생성")}
-              </button>
-            </div>
+            )}
             {shareLink&&(
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-white p-2">
-                  <span className="flex-1 truncate text-xs text-gray-600">{`${typeof window!=="undefined"?window.location.origin:""}/share/${shareLink.token}`}</span>
-                  <button onClick={()=>void navigator.clipboard.writeText(`${window.location.origin}/share/${shareLink.token}`)}
-                    className="flex-shrink-0 rounded-md bg-indigo-100 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-200">복사</button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-indigo-600">{shareLink.role==="EDITOR"?"편집 가능":"보기 전용"} 링크</span>
-                  <button onClick={()=>void revokeShareLink(shareCalId)} className="text-[10px] text-red-400 hover:text-red-600">링크 삭제</button>
-                </div>
-                {/* 이메일로 링크 직접 발송 */}
-                <div className="border-t border-indigo-100 pt-2">
-                  <p className="text-[10px] font-semibold text-indigo-600 mb-1.5">📧 이메일로 바로 전송</p>
+              <div className="space-y-2 border-t border-indigo-100 pt-2">
+                <div>
+                  <p className="mb-1 text-[10px] font-semibold text-indigo-600">📧 이메일로 링크 전송</p>
                   <div className="flex gap-1.5">
-                    <input value={inviteByEmail} onChange={e=>setInviteByEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&void sendLinkByEmail(shareCalId)} placeholder="이메일 주소" className="flex-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-indigo-400"/>
-                    <button onClick={()=>void sendLinkByEmail(shareCalId)} disabled={!inviteByEmail.trim()||inviteByEmailSending} className="flex-shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-bold text-white disabled:opacity-40">{inviteByEmailSending?"...":"전송"}</button>
+                    <input value={inviteByEmail} onChange={e=>setInviteByEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&void sendLinkByEmail(shareCalId)} placeholder="이메일" className="flex-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-indigo-400"/>
+                    <button type="button" onClick={()=>void sendLinkByEmail(shareCalId)} disabled={!inviteByEmail.trim()||inviteByEmailSending} className="flex-shrink-0 rounded-lg bg-indigo-600 px-2.5 py-1.5 text-xs font-bold text-white disabled:opacity-40">{inviteByEmailSending?"...":"전송"}</button>
                   </div>
                   {inviteByEmailMsg&&<p className={`mt-1 text-[10px] ${inviteByEmailMsg.ok?"text-emerald-600":"text-red-500"}`}>{inviteByEmailMsg.text}</p>}
                 </div>
-                {/* iCal 다운로드 */}
                 <a href={`/api/share/${shareLink.token}/ical`} download className="flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50">
                   <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-                  iCal 다운로드 (.ics)
+                  iCal (.ics) — 링크로 열람
                 </a>
               </div>
             )}
-            {!shareLink&&<p className="text-[10px] text-indigo-500">링크를 생성하면 계정 없이도 일정을 볼 수 있어요.</p>}
+            {shareLinksList.length===0&&<p className="text-[10px] text-indigo-500">새 링크를 만들면 이 캘린더를 누구나 볼 수 있어요. 전체 링크를 끄려면 각 링크의 「링크 끄기」를 사용하세요.</p>}
           </div>
 
           {/* ── 이메일로 초대 ── */}
@@ -1919,6 +2092,14 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-gray-500">링크 만료(일)</span>
+            <input value={multiShareExpiresDays} onChange={e=>setMultiShareExpiresDays(e.target.value.replace(/\D/g,"").slice(0,4))} placeholder="비우면 무제한" className="w-24 rounded-lg border border-gray-200 px-2 py-1 text-xs outline-none focus:border-indigo-400"/>
+            <label className="flex cursor-pointer items-center gap-1 text-[11px] text-gray-600">
+              <input type="checkbox" checked={multiShareGuestApproval} onChange={e=>setMultiShareGuestApproval(e.target.checked)} className="rounded border-gray-300 text-indigo-600"/>
+              이름·승인 필요
+            </label>
+          </div>
           {multiShareLink?(
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 space-y-2">
               <p className="text-[11px] font-bold text-indigo-600">✅ 공유 링크 생성됨</p>
@@ -1938,7 +2119,7 @@ export default function DashboardPage() {
           ):(
             <button onClick={async()=>{
               setMultiShareLoading(true);
-              const res=await fetch("/api/multi-share",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({calendarIds:Array.from(calMultiSelected),shareRole:multiShareRole})});
+              const res=await fetch("/api/multi-share",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({calendarIds:Array.from(calMultiSelected),shareRole:multiShareRole,expiresInDays:multiShareExpiresDays.trim()?Math.min(3650,parseInt(multiShareExpiresDays,10)||0):null,guestApprovalRequired:multiShareGuestApproval})});
               const d=(await res.json()) as {token?:string;shareRole?:string};
               if(d.token)setMultiShareLink({token:d.token,role:d.shareRole??"VIEWER"});
               setMultiShareLoading(false);
@@ -2498,11 +2679,11 @@ function WeekView({currentDate,events,selectedId,today,onEventClick,onDayClick}:
 
 /* ─── Event Panel ────────────────────────────────────────────────── */
 type FC={title:(v:string)=>void;allDay:(v:boolean)=>void;sd:(v:string)=>void;st:(v:string)=>void;ed:(v:string)=>void;et:(v:string)=>void;loc:(v:string)=>void;locDetail:(v:string)=>void;desc:(v:string)=>void;tags:(v:string)=>void;url:(v:string)=>void;reminders:(v:number[])=>void};
-function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay,editSD,editST,editED,editET,editLoc,editLocDetail,editDesc,editTags,editUrl,editReminders,comment,submitting,onEditStart,onEditCancel,onFieldChange,onSave,onCommentChange,onAddComment,onDelete,onClose,onDuplicate,calendars,editCalId,onEditCalChange}:{
+function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay,editSD,editST,editED,editET,editLoc,editLocDetail,editDesc,editTags,editUrl,editReminders,comment,submitting,onEditStart,onEditCancel,onFieldChange,onSave,onCommentChange,onAddComment,onDelete,onClose,onDuplicate,onToggleTaskDone,calendars,editCalId,onEditCalChange}:{
   event:FlatEvent;calendar:Calendar|null;viewer:AuthUser|null;canEdit:boolean;
   editMode:boolean;editTitle:string;editAllDay:boolean;editSD:string;editST:string;editED:string;editET:string;editLoc:string;editLocDetail:string;editDesc:string;editTags:string;editUrl:string;editReminders:number[];
   comment:string;submitting:boolean;onEditStart:()=>void;onEditCancel:()=>void;onFieldChange:FC;
-  onSave:()=>void;onCommentChange:(v:string)=>void;onAddComment:()=>void;onDelete:()=>void;onClose:()=>void;onDuplicate:()=>void;
+  onSave:()=>void;onCommentChange:(v:string)=>void;onAddComment:()=>void;onDelete:()=>void;onClose:()=>void;onDuplicate:()=>void;onToggleTaskDone:(ev:FlatEvent)=>void;
   calendars:Calendar[];editCalId:string;onEditCalChange:(id:string)=>void;
 }){
   const col=colOf(event.calendarColor);
@@ -2590,7 +2771,7 @@ function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay
           <>
             <div className="flex items-start gap-2">
               {event.isTask&&(
-                <button onClick={()=>void fetch(`/api/events/${event.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({isDone:!event.isDone})}).then(()=>void (window.location.reload()))}
+                <button onClick={()=>onToggleTaskDone(event)}
                   className={`mt-0.5 flex-shrink-0 h-6 w-6 rounded-full border-2 flex items-center justify-center transition ${event.isDone?"border-green-500 bg-green-500 text-white":"border-gray-300 hover:border-green-400"}`}>
                   {event.isDone&&<svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
                 </button>
@@ -2613,7 +2794,16 @@ function EventPanel({event,calendar,viewer,canEdit,editMode,editTitle,editAllDay
                 <p className="flex items-center gap-2 text-sm text-gray-600"><svg className="h-4 w-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                   {fmtDate(event.startAt)} {fmtTime(event.startAt)}{event.endAt?<> ~ {isMulti?`${fmtDate(event.endAt)} `:""}  {fmtTime(event.endAt)}</>:null}</p>
               )}
-              {event.location&&<p className="flex items-start gap-2 text-sm text-gray-600"><svg className="h-4 w-4 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span>{event.location}{event.locationDetail?` ${event.locationDetail}`:""}</span></p>}
+              {event.location&&(
+                <div className="space-y-1.5">
+                  <p className="flex items-start gap-2 text-sm text-gray-600"><svg className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span>{event.location}{event.locationDetail?` ${event.locationDetail}`:""}</span></p>
+                  <div className="flex flex-wrap gap-1.5 pl-0 sm:pl-6">
+                    <a href={naverMapSearchUrl(navigationSearchQuery(event.location, event.locationDetail))} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-green-200 bg-green-50 px-2 py-1 text-[10px] font-bold text-green-800 hover:bg-green-100">네이버 지도</a>
+                    <a href={tmapAppSearchUrl(navigationSearchQuery(event.location, event.locationDetail))} className="inline-flex rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-800 hover:bg-blue-100">티맵 앱</a>
+                    <a href={tmapWebSearchUrl(navigationSearchQuery(event.location, event.locationDetail))} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-gray-200 bg-white px-2 py-1 text-[10px] text-gray-600 hover:bg-gray-50">티맵 웹</a>
+                  </div>
+                </div>
+              )}
               {event.url&&<a href={event.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-indigo-600 hover:underline"><svg className="h-4 w-4 text-indigo-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg><span className="truncate">{event.url}</span></a>}
             </div>
             {event.description&&<div className="mt-3 rounded-xl bg-gray-50 px-3 py-2.5"><p className="text-xs leading-relaxed text-gray-500 whitespace-pre-wrap">{event.description}</p></div>}

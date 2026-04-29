@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense } from "react";
 
 type ProviderInfo = { id: string; name: string };
 
 function LoginContent() {
   const params = useSearchParams();
+  const router = useRouter();
   const verified = params.get("verified");
   const errorParam = params.get("error");
 
@@ -55,7 +56,8 @@ function LoginContent() {
       if (!r) { setAuthMessage("로그인 실패"); return; }
       if (r.error === "email_not_verified") { setAuthMessage("이메일 인증이 필요합니다. 가입 시 받은 메일을 확인해주세요."); return; }
       if (r.error) { setAuthMessage("이메일 또는 비밀번호가 올바르지 않습니다."); return; }
-      if (r.url) window.location.href = r.url;
+      router.replace("/dashboard");
+      router.refresh();
     } catch { setAuthMessage("로그인 처리 중 문제가 발생했습니다."); }
     finally { setEmailLoading(false); }
   }
