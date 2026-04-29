@@ -8,6 +8,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     timestamp: new Date().toISOString(),
+    gitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
     env: {
       hasAuthSecret: Boolean(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET),
       hasGoogleOAuth: Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET),
