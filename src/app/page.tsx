@@ -32,6 +32,10 @@ const painPoints = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ),
+    color: "text-emerald-600 bg-emerald-50",
+  },
+  {
+    problem: "누가 몇 시에 일정을 바꿨는지, 말로만 싸워요",
     solution: "활동 로그에 수정·댓글이 남습니다. '내가 안 건드렸어' 종료",
     icon: (
       <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
