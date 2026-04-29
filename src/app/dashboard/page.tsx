@@ -288,6 +288,7 @@ export default function DashboardPage() {
   const [multiShareExpiresDays, setMultiShareExpiresDays] = useState("");
   const [multiShareGuestApproval, setMultiShareGuestApproval] = useState(true);
   const [multiShareLoading, setMultiShareLoading] = useState(false);
+  const [multiShareErr, setMultiShareErr] = useState<string | null>(null);
   const [showMultiShareModal, setShowMultiShareModal] = useState(false);
   const [editCalName, setEditCalName] = useState(""); const [editCalColor, setEditCalColor] = useState("");
   const [confirmDeleteCal, setConfirmDeleteCal] = useState(false);
@@ -1311,7 +1312,7 @@ export default function DashboardPage() {
             {/* 캘린더 헤더 + 다중공유 토글 */}
             <div className="mb-1 flex items-center justify-between px-1">
               <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">내 캘린더</span>
-              <button onClick={()=>{setCalMultiSelect(v=>!v);setCalMultiSelected(new Set());setMultiShareLink(null);}}
+              <button onClick={()=>{setCalMultiSelect(v=>!v);setCalMultiSelected(new Set());setMultiShareLink(null);setMultiShareErr(null);}}
                 title="여러 캘린더 동시 공유"
                 className={`rounded-lg px-2 py-0.5 text-[10px] font-semibold transition ${calMultiSelect?"bg-indigo-600 text-white":"border border-gray-200 text-gray-400 hover:border-indigo-300 hover:text-indigo-500"}`}>
                 {calMultiSelect?"✕ 취소":"🔗 동시공유"}
@@ -1320,9 +1321,12 @@ export default function DashboardPage() {
             {/* 다중 공유 선택 모드 안내 */}
             {calMultiSelect&&(
               <div className="mb-2 rounded-xl bg-indigo-50 border border-indigo-200 px-3 py-2">
-                <p className="text-[11px] text-indigo-600 font-medium">캘린더를 2개 이상 선택하고 공유 링크를 만드세요</p>
+                <p className="text-[11px] text-indigo-600 font-medium">내가 소유한 캘린더를 2개 이상 선택한 뒤 링크를 만드세요.</p>
+                {viewer?.role !== "OWNER" && (
+                  <p className="mt-1 text-[10px] text-indigo-500/90">초대받은 캘린더(편집만 가능)는 동시 공유에 넣을 수 없습니다.</p>
+                )}
                 {calMultiSelected.size>=2&&(
-                  <button onClick={()=>setShowMultiShareModal(true)}
+                  <button onClick={()=>{setMultiShareErr(null);setShowMultiShareModal(true);}}
                     className="mt-1.5 w-full rounded-lg bg-indigo-600 py-1.5 text-[11px] font-bold text-white hover:bg-indigo-700 transition">
                     {calMultiSelected.size}개 캘린더 공유 링크 만들기 →
                   </button>
@@ -1335,18 +1339,19 @@ export default function DashboardPage() {
               <div id="tour-calendar-list" className="space-y-0.5">
                 {calendars.map((c,ci)=>{
                   const col=colOf(c.color),hidden=hiddenIds.has(c.id),isOwner=c.members.some(m=>m.user.id===viewer?.id&&m.role==="OWNER");
+                  const canPickMulti = viewer?.role === "OWNER" || isOwner;
                   const multiChecked=calMultiSelected.has(c.id);
                   const sideDot=calDotParts(col,"block h-3 w-3 rounded-full");
                   return(
-                    <div key={c.id} id={ci===0?"tour-invite-hint":undefined} className={`group flex items-center gap-1 rounded-xl px-2 py-2.5 transition ${hidden&&!calMultiSelect?"opacity-40":"hover:bg-gray-50"} ${calMultiSelect&&multiChecked?"bg-indigo-50":""}`}>
+                    <div key={c.id} id={ci===0?"tour-invite-hint":undefined} className={`group flex items-center gap-1 rounded-xl px-2 py-2.5 transition ${hidden&&!calMultiSelect?"opacity-40":"hover:bg-gray-50"} ${calMultiSelect&&multiChecked?"bg-indigo-50":""} ${calMultiSelect&&!canPickMulti?"opacity-45 pointer-events-none":""}`}>
                       {/* 다중선택 체크박스 */}
                       {calMultiSelect?(
-                        <button onClick={()=>setCalMultiSelected(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;})}
-                          className={`flex-shrink-0 h-4 w-4 rounded border-2 flex items-center justify-center transition ${multiChecked?"border-indigo-500 bg-indigo-500":"border-gray-300"}`}>
+                        <button type="button" title={!canPickMulti?"내가 소유한 캘린더만 동시 공유에 넣을 수 있어요":undefined} disabled={!canPickMulti} onClick={()=>{if(!canPickMulti)return;setCalMultiSelected(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;});}}
+                          className={`flex-shrink-0 h-4 w-4 rounded border-2 flex items-center justify-center transition disabled:cursor-not-allowed ${multiChecked?"border-indigo-500 bg-indigo-500":canPickMulti?"border-gray-300":"border-gray-200 bg-gray-100"}`}>
                           {multiChecked&&<svg className="h-2.5 w-2.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
                         </button>
                       ):(
-                        <button onClick={()=>setHiddenIds(p=>{const n=new Set(p);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;})}
+                        <button type="button" onClick={()=>setHiddenIds(p=>{const n=new Set(p);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;})}
                           className="flex-shrink-0 cursor-pointer">
                           {hidden?(
                             <span className="block h-3 w-3 rounded-full bg-gray-300"/>
@@ -1355,7 +1360,7 @@ export default function DashboardPage() {
                           )}
                         </button>
                       )}
-                      <button onClick={()=>{if(!calMultiSelect){setHiddenIds(p=>{const n=new Set(p);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;});}else{setCalMultiSelected(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;});}}}
+                      <button type="button" onClick={()=>{if(!calMultiSelect){setHiddenIds(p=>{const n=new Set(p);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;});}else{if(!canPickMulti)return;setCalMultiSelected(prev=>{const n=new Set(prev);if(n.has(c.id))n.delete(c.id);else n.add(c.id);return n;});}}}
                         className="flex flex-1 items-center gap-2.5 min-w-0">
                         <span className="flex-1 truncate text-sm font-medium text-gray-700">{c.name}</span>
                         <span className="text-[10px] text-gray-400">{c.events.length}</span>
@@ -2071,7 +2076,7 @@ export default function DashboardPage() {
 
       {/* ── MULTI-SHARE MODAL ── */}
       {showMultiShareModal&&(
-        <Modal onClose={()=>{setShowMultiShareModal(false);setMultiShareLink(null);}}>
+        <Modal onClose={()=>{setShowMultiShareModal(false);setMultiShareLink(null);setMultiShareErr(null);}}>
           <h2 className="mb-3 text-lg font-bold text-gray-900">🔗 여러 캘린더 동시 공유</h2>
           <div className="mb-3 space-y-1">
             <p className="text-xs font-semibold text-gray-500">선택된 캘린더 ({calMultiSelected.size}개)</p>
@@ -2100,6 +2105,9 @@ export default function DashboardPage() {
               이름·승인 필요
             </label>
           </div>
+          {multiShareErr&&(
+            <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{multiShareErr}</p>
+          )}
           {multiShareLink?(
             <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 space-y-2">
               <p className="text-[11px] font-bold text-indigo-600">✅ 공유 링크 생성됨</p>
@@ -2117,12 +2125,30 @@ export default function DashboardPage() {
               </button>
             </div>
           ):(
-            <button onClick={async()=>{
+            <button type="button" onClick={async()=>{
+              setMultiShareErr(null);
               setMultiShareLoading(true);
-              const res=await fetch("/api/multi-share",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({calendarIds:Array.from(calMultiSelected),shareRole:multiShareRole,expiresInDays:multiShareExpiresDays.trim()?Math.min(3650,parseInt(multiShareExpiresDays,10)||0):null,guestApprovalRequired:multiShareGuestApproval})});
-              const d=(await res.json()) as {token?:string;shareRole?:string};
-              if(d.token)setMultiShareLink({token:d.token,role:d.shareRole??"VIEWER"});
-              setMultiShareLoading(false);
+              try{
+                const allowedIds=Array.from(calMultiSelected).filter(id=>{
+                  const c=calendars.find(x=>x.id===id);
+                  if(!c)return false;
+                  return viewer?.role==="OWNER"||c.members.some(m=>m.user.id===viewer?.id&&m.role==="OWNER");
+                });
+                if(allowedIds.length<2){
+                  setMultiShareErr("소유한 캘린더를 2개 이상 선택해 주세요.");
+                  return;
+                }
+                const res=await fetch("/api/multi-share",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({calendarIds:allowedIds,shareRole:multiShareRole,expiresInDays:multiShareExpiresDays.trim()?Math.min(3650,parseInt(multiShareExpiresDays,10)||0):null,guestApprovalRequired:multiShareGuestApproval})});
+                let d:{token?:string;shareRole?:string;error?:string};
+                try{d=await res.json() as {token?:string;shareRole?:string;error?:string};}
+                catch{setMultiShareErr("서버 응답을 읽지 못했습니다.");return;}
+                if(!res.ok){setMultiShareErr(typeof d.error==="string"?d.error:`요청 실패 (${res.status})`);return;}
+                if(d.token)setMultiShareLink({token:d.token,role:d.shareRole??"VIEWER"});
+              }catch{
+                setMultiShareErr("네트워크 오류가 났습니다.");
+              }finally{
+                setMultiShareLoading(false);
+              }
             }} disabled={multiShareLoading||calMultiSelected.size<2}
               className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white disabled:opacity-40 hover:bg-indigo-700 transition">
               {multiShareLoading?"생성 중...":"공유 링크 만들기"}
