@@ -1,440 +1,329 @@
 import Link from "next/link";
 
-/* ─── Data ───────────────────────────────────────────────────────── */
+/* ─── Icons (inline SVG, no emoji clutter) ─────────────────────── */
 
-const painPoints = [
+function IconCalendar(props: { className?: string }) {
+  return (
+    <svg className={props.className} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5a2.25 2.25 0 002.25-2.25m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5a2.25 2.25 0 012.25 2.25v7.5" />
+    </svg>
+  );
+}
+function IconLink(props: { className?: string }) {
+  return (
+    <svg className={props.className} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+    </svg>
+  );
+}
+function IconShield(props: { className?: string }) {
+  return (
+    <svg className={props.className} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+    </svg>
+  );
+}
+function IconChat(props: { className?: string }) {
+  return (
+    <svg className={props.className} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.134 2.706.057 3.422-.5l3.289-2.758a.75.75 0 01.472-.138h1.884a2.25 2.25 0 002.25-2.25V6a2.25 2.25 0 00-2.25-2.25h-13.5A2.25 2.25 0 002.25 6v8.25a2.25 2.25 0 002.25 2.25z" />
+    </svg>
+  );
+}
+function IconList(props: { className?: string }) {
+  return (
+    <svg className={props.className} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+    </svg>
+  );
+}
+function IconMap(props: { className?: string }) {
+  return (
+    <svg className={props.className} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+    </svg>
+  );
+}
+function IconPhone(props: { className?: string }) {
+  return (
+    <svg className={props.className} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
+    </svg>
+  );
+}
+function IconArrows(props: { className?: string }) {
+  return (
+    <svg className={props.className} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+    </svg>
+  );
+}
+
+const valueProps = [
   {
-    problem: "일정이 카톡·구글·수기에 흩어져 미칠 것 같아요",
-    solution: "한 화면에 모아 월·주·목록으로 보세요. 찾는 시간이 곧 돈입니다",
-    icon: (
-      <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
-    color: "text-indigo-600 bg-indigo-50",
+    title: "흩어진 일정",
+    body: "채팅·캡처·별도 앱에 나뉜 약속을 한 화면의 월·주·목록 뷰로 정리합니다.",
+    Icon: IconCalendar,
   },
   {
-    problem: "공유 링크 뿌리면 '누가 봤는지' 통제가 안 돼 불안해요",
-    solution: "멀티 공유 링크 + 방문자 이름·승인·차단. 오너만 클릭 몇 번이면 끝",
-    icon: (
-      <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-      </svg>
-    ),
-    color: "text-violet-600 bg-violet-50",
+    title: "공유 통제",
+    body: "캘린더 단위로 권한을 나누고, 링크·게스트 승인으로 열람 범위를 조정합니다.",
+    Icon: IconShield,
   },
   {
-    problem: "약속 장소 찾느라 지도 앱 왔다 갔다… 짜증 나요",
-    solution: "일정에서 바로 네이버·티맵 길찾기. 역·장소 검색까지 한 번에",
-    icon: (
-      <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ),
-    color: "text-emerald-600 bg-emerald-50",
+    title: "변경 기록",
+    body: "수정과 댓글에 기록이 남아, 협업 중 생기는 오해를 줄일 수 있습니다.",
+    Icon: IconList,
   },
   {
-    problem: "누가 몇 시에 일정을 바꿨는지, 말로만 싸워요",
-    solution: "활동 로그에 수정·댓글이 남습니다. '내가 안 건드렸어' 종료",
-    icon: (
-      <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-      </svg>
-    ),
-    color: "text-rose-600 bg-rose-50",
+    title: "이동까지",
+    body: "일정과 연결된 장소에서 외부 지도로 길찾기를 열 수 있습니다.",
+    Icon: IconMap,
   },
 ];
 
 const features = [
   {
-    icon: "🎯",
-    title: "목적별 캘린더 분리",
-    desc: "회사·알바·개인·모임을 캘린더 단위로 쪼갭니다. 섞이면 생기는 사고, 여기선 출발부터 차단합니다.",
-    tag: "핵심",
-    tagColor: "bg-indigo-50 text-indigo-600",
+    title: "목적별 캘린더",
+    desc: "업무·알바·개인 등 용도별로 캘린더를 나누고, 멤버와 권한을 각각 설정합니다.",
+    tag: "구조",
+    Icon: IconCalendar,
   },
   {
-    icon: "🔗",
-    title: "공유 링크 · 멀티 공유 · 게스트 승인",
-    desc: "초대 없이도 링크로 공유 가능. 누가 들어왔는지 이름·승인·차단으로 관리하세요. 외부 일정 공유의 종결형입니다.",
-    tag: "신규",
-    tagColor: "bg-fuchsia-50 text-fuchsia-600",
+    title: "공유 링크·멀티 공유",
+    desc: "회원 초대 없이 링크로 공유하거나, 여러 캘린더를 묶은 동시 공유를 만들 수 있습니다.",
+    tag: "공유",
+    Icon: IconLink,
   },
   {
-    icon: "🔒",
-    title: "오너·에디터·뷰어 권한",
-    desc: "같은 사람이어도 캘린더마다 보이는 일정이 달라요. '이건 못 보게'를 제품으로 고정했습니다.",
+    title: "역할·승인",
+    desc: "오너·에디터·뷰어 역할과, 필요 시 게스트 승인 흐름을 사용합니다.",
     tag: "보안",
-    tagColor: "bg-violet-50 text-violet-600",
+    Icon: IconShield,
   },
   {
-    icon: "💬",
-    title: "일정 단위 댓글",
-    desc: "미팅 전 준비물, 알바 대타, 모임 장소 조율—쓰레드 말고 일정 아래에서 바로 끝내세요.",
+    title: "일정·댓글·반응",
+    desc: "일정 단위로 대화를 남기고, 협업 맥락을 한곳에 유지합니다.",
     tag: "협업",
-    tagColor: "bg-sky-50 text-sky-600",
+    Icon: IconChat,
   },
   {
-    icon: "📋",
-    title: "활동 로그",
-    desc: "수정 주체와 시점이 남습니다. 책임 공방은 줄이고, 실행은 늘리세요.",
-    tag: "추적",
-    tagColor: "bg-amber-50 text-amber-600",
+    title: "활동 기록",
+    desc: "무엇이 바뀌었는지 추적해 팀·알바 스케줄 운영을 투명하게 합니다.",
+    tag: "기록",
+    Icon: IconList,
   },
   {
-    icon: "🗺️",
-    title: "길찾기 · 장소·역 검색",
-    desc: "일정 상단에서 네이버·티맵 길찾기. 역 이름·매장 검색으로 주소까지 빠르게 박습니다.",
-    tag: "이동",
-    tagColor: "bg-teal-50 text-teal-600",
+    title: "뷰 전환",
+    desc: "월간·주간·목록 보기를 전환해 보고 있는 단위에 맞게 씁니다.",
+    tag: "표시",
+    Icon: IconCalendar,
   },
   {
-    icon: "📅",
-    title: "월간 · 주간 · 목록 뷰",
-    desc: "한눈에 보는 월 캘린더부터 주 단위·리스트까지. 상황에 맞게 뷰를 갈아 끼우세요.",
-    tag: "뷰",
-    tagColor: "bg-orange-50 text-orange-600",
+    title: "모바일 사용성",
+    desc: "작은 화면에서도 검색·뒤로 가기·패널 흐름을 우선해 두었습니다.",
+    tag: "UX",
+    Icon: IconPhone,
   },
   {
-    icon: "📱",
-    title: "모바일 퍼스트 UX",
-    desc: "뒤로가기·오버레이·검색 모달까지 손가락 사용 흐름을 먼저 설계했습니다. 지하철에서도 덜 짜증 나게.",
-    tag: "모바일",
-    tagColor: "bg-cyan-50 text-cyan-600",
-  },
-  {
-    icon: "👤",
-    title: "개인 일정 공간",
-    desc: "팀원도 각자 개인 캘린더를 가집니다. 공유와 프라이버시를 한 서비스에서 동시에.",
-    tag: "개인화",
-    tagColor: "bg-emerald-50 text-emerald-600",
-  },
-  {
-    icon: "🔄",
-    title: "Google Calendar 연동",
-    desc: "가져오기·내보내기로 기존 습관을 끊지 마세요. 옮겨 타는 데 드는 시간을 아낍니다.",
+    title: "Google Calendar",
+    desc: "가져오기·내보내기로 기존 캘린더와 병행할 수 있습니다.",
     tag: "연동",
-    tagColor: "bg-rose-50 text-rose-600",
+    Icon: IconArrows,
   },
 ];
 
 const useCases = [
   {
-    emoji: "🏢",
-    who: "팀장 · PM · 실무 리드",
-    title: "팀 일정은 팀 안에서만",
-    desc: "외부에 공유하면 안 되는 마감·회의는 권한으로 잠그고, 필요한 사람에게만 링크를 던지세요. 승인 없이 들어오면 끝나는 그런 팀이 아니라면 딱입니다.",
-    color: "bg-indigo-600",
-    tags: ["권한 분리", "멤버 초대", "댓글·로그"],
+    title: "팀·프로젝트",
+    subtitle: "내부 일정과 대외 일정을 같은 사람에게도 다르게 보이게 나눕니다.",
+    bullets: ["캘린더·역할 분리", "댓글·로그", "링크 공유"],
   },
   {
-    emoji: "⏰",
-    who: "사장님 · 매니저 · 알바 크루",
-    title: "스케줄 대란, 카톡 스크롤 지옥 종료",
-    desc: "근무표를 한 캘린더에 모으고 링크로만 공유하세요. 바뀐 시각은 로그로 남습니다. '나 못 봤어요' 재료를 줄여 드립니다.",
-    color: "bg-violet-600",
-    tags: ["알바 캘린더", "링크 공유", "변경 추적"],
+    title: "교대·알바",
+    subtitle: "근무표를 한곳에 두고, 링크로 필요한 구성원만 접근하게 합니다.",
+    bullets: ["스케줄 조정", "변경 확인", "모바일 확인"],
   },
   {
-    emoji: "🙋",
-    who: "프리랜서 · 대학생 · 바쁜 일인",
-    title: "일·알바·약속 한 화면",
-    desc: "여러 모드로 살아도 앱은 하나면 됩니다. 월/주/리스트로 보고, 약속은 길찾기까지 한 번에 연결하세요.",
-    color: "bg-emerald-600",
-    tags: ["통합 뷰", "길찾기", "멀티 캘린더"],
+    title: "개인·복수 역할",
+    subtitle: "일·학습·개인 약속을 분리해 두고 한 계정에서 같이 봅니다.",
+    bullets: ["통합 화면", "색·캘린더 구분", "길찾기"],
   },
 ];
 
 const steps = [
-  {
-    num: "01",
-    title: "소셜로 5초 가입",
-    desc: "Google · 네이버 · 카카오. 개인 캘린더가 바로 생깁니다. 설문·카드 없이 시작하세요.",
-  },
-  {
-    num: "02",
-    title: "캘린더 나누고 사람 붙이기",
-    desc: "업무/알바/모임 단위로 캘린더를 만들고 멤버 또는 공유 링크를 나눕니다. 보여줄 범위는 당신이 정합니다.",
-  },
-  {
-    num: "03",
-    title: "일정·댓글·길찾기로 실행",
-    desc: "월·주·목록으로 보고, 댓글로 합의하고, 약속은 지도 앱 탭 전환 없이 이동까지. 그게 끝입니다.",
-  },
+  { step: "1", title: "계정 연결", desc: "Google·네이버·카카오 중 편한 방법으로 가입합니다." },
+  { step: "2", title: "캘린더 구성", desc: "용도에 맞게 캘린더를 만들고 멤버나 링크를 배치합니다." },
+  { step: "3", title: "공유·운영", desc: "일정을 쌓고, 댓글·기록·지도 링크로 실행까지 이어갑니다." },
 ];
-
-/* ─── Page ───────────────────────────────────────────────────────── */
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-white text-gray-900 antialiased">
-
-      {/* ── NAV ── */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-gray-100 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center gap-2">
-            <span className="text-xl font-extrabold tracking-tight text-indigo-600">SyncNest</span>
-            <span className="hidden rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-500 sm:inline">
-              FREE BETA
+    <div className="min-h-screen bg-[#fafafa] text-slate-900 antialiased">
+      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <span className="text-[15px] font-semibold tracking-tight text-slate-900">SyncNest</span>
+            <span className="hidden rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-600 sm:inline">
+              Beta
             </span>
           </div>
-          <div className="hidden items-center gap-6 text-sm font-medium text-gray-500 sm:flex">
-            <a href="#why" className="hover:text-gray-800 transition-colors">왜 쓰나요</a>
-            <a href="#features" className="hover:text-gray-800 transition-colors">기능</a>
-            <a href="#usecases" className="hover:text-gray-800 transition-colors">활용 사례</a>
-            <a href="#howto" className="hover:text-gray-800 transition-colors">시작하기</a>
+          <div className="hidden items-center gap-8 text-[13px] font-medium text-slate-600 sm:flex">
+            <a href="#values" className="transition hover:text-slate-900">
+              소개
+            </a>
+            <a href="#features" className="transition hover:text-slate-900">
+              기능
+            </a>
+            <a href="#usecases" className="transition hover:text-slate-900">
+              활용
+            </a>
+            <a href="#start" className="transition hover:text-slate-900">
+              시작
+            </a>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/login"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+            <Link
+              href="/login"
+              className="rounded-md px-3 py-2 text-[13px] font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+            >
               로그인
             </Link>
-            <Link href="/login"
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors">
-              무료 시작
+            <Link
+              href="/login"
+              className="rounded-md bg-slate-900 px-3 py-2 text-[13px] font-medium text-white transition hover:bg-slate-800"
+            >
+              시작하기
             </Link>
           </div>
         </div>
       </nav>
 
-      {/* ── HERO ── */}
-      <section className="relative overflow-hidden pt-16">
-        {/* background decoration */}
-        <div className="absolute inset-0 -z-10">
-          <div className="absolute top-0 left-1/2 h-[600px] w-[800px] -translate-x-1/2 rounded-full bg-gradient-to-br from-indigo-100/60 via-violet-50/40 to-transparent blur-3xl" />
+      <section className="relative border-b border-slate-200/80 bg-white pt-14">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -top-24 left-1/2 h-[480px] w-[720px] -translate-x-1/2 rounded-full bg-gradient-to-b from-slate-100/90 to-transparent blur-3xl" />
         </div>
-
-        <div className="mx-auto max-w-6xl px-4 pb-20 pt-24 sm:px-6 lg:flex lg:items-center lg:gap-16 lg:pt-28">
-          {/* left: copy */}
-          <div className="flex-1 text-center lg:text-left">
-            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-1.5 shadow-sm">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-              <span className="text-xs font-bold text-amber-800">회사 · 알바 · 모임 — 일정 지옥 탈출 모드</span>
-            </div>
-
-            <h1 className="text-4xl font-extrabold leading-[1.15] tracking-tight text-gray-900 sm:text-5xl lg:text-[3.25rem] break-keep">
-              &quot;캡처 또 보냈어요?&quot;{" "}
-              <span className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-500 bg-clip-text text-transparent">
-                그만. 링크 하나로 끝나는 일정 공유
-              </span>
+        <div className="relative mx-auto grid max-w-5xl gap-12 px-4 py-16 sm:px-6 lg:grid-cols-2 lg:items-center lg:gap-16 lg:py-20">
+          <div>
+            <p className="text-[13px] font-medium text-slate-500">일정 협업 · 권한 분리</p>
+            <h1 className="mt-3 text-[2rem] font-semibold leading-[1.2] tracking-tight text-slate-900 sm:text-5xl sm:leading-[1.15]">
+              함께 보는 일정,
+              <br />
+              <span className="text-slate-600">범위는 캘린더마다</span>
             </h1>
-
-            <p className="mx-auto mt-6 max-w-lg text-lg leading-relaxed text-gray-600 lg:mx-0">
-              초대장·스프레드시트·단톡에 흩어진 일정을 <strong className="text-gray-900">한곳에 몰아넣고</strong>,{" "}
-              <strong className="text-gray-900">보여줄 사람만</strong> 남깁니다. 게스트 승인·멀티 공유·길찾기까지 —{" "}
-              <span className="text-indigo-600 font-semibold">말로 설득하지 말고 제품으로 증명</span>하세요.
+            <p className="mt-5 max-w-md text-[15px] leading-relaxed text-slate-600">
+              SyncNest는 여러 캘린더에 일정을 나누고, 멤버·링크·역할로 공유 범위를 정합니다. 댓글과 기록, Google Calendar 연동,
+              모바일에서의 사용 흐름을 기본에 두었습니다.
             </p>
-
-            <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row lg:justify-start">
-              <Link href="/login"
-                className="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-8 py-4 text-center text-base font-bold text-white shadow-lg shadow-indigo-200 hover:from-indigo-700 hover:to-violet-700 hover:shadow-indigo-300 transition-all sm:w-auto">
-                0원으로 바로 시작 →
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Link
+                href="/login"
+                className="inline-flex items-center justify-center rounded-md bg-slate-900 px-5 py-3 text-[14px] font-medium text-white transition hover:bg-slate-800"
+              >
+                무료로 시작
               </Link>
-              <a href="#features"
-                className="w-full rounded-xl border-2 border-gray-200 bg-white px-8 py-4 text-center text-base font-bold text-gray-800 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all sm:w-auto">
-                지금 쓸 수 있는 기능 보기
+              <a
+                href="#features"
+                className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-5 py-3 text-[14px] font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50"
+              >
+                기능 더 보기
               </a>
             </div>
-
-            <p className="mt-4 text-xs font-medium text-gray-500">신용카드 없음 · 소셜 로그인만 · 베타 전 기간 무료</p>
-
-            {/* mini stats */}
-            <div className="mt-10 flex flex-wrap items-center justify-center gap-6 lg:justify-start">
-              {[
-                { num: "3초", label: "소셜 가입" },
-                { num: "링크", label: "멀티 공유·승인" },
-                { num: "뷰 3종", label: "월·주·목록" },
-              ].map(s => (
-                <div key={s.label} className="text-center">
-                  <p className="text-xl font-extrabold text-indigo-600">{s.num}</p>
-                  <p className="mt-0.5 text-[11px] text-gray-400">{s.label}</p>
-                </div>
-              ))}
-            </div>
+            <p className="mt-4 text-[12px] text-slate-500">베타 기간 무료 · 카드 없이 소셜 로그인</p>
           </div>
-
-          {/* right: mockup */}
-          <div className="mt-16 flex-1 lg:mt-0">
-            <div className="relative mx-auto max-w-[420px]">
-              {/* shadow decoration */}
-              <div className="absolute -inset-3 rounded-3xl bg-gradient-to-br from-indigo-200 to-violet-200 opacity-30 blur-xl" />
-
-              <div className="relative rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
-                {/* window chrome */}
-                <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-2.5">
-                  <div className="flex gap-1.5">
-                    <div className="h-3 w-3 rounded-full bg-red-400" />
-                    <div className="h-3 w-3 rounded-full bg-yellow-400" />
-                    <div className="h-3 w-3 rounded-full bg-green-400" />
-                  </div>
-                  <span className="text-[11px] font-semibold text-gray-500">SyncNest · 실시간 협업 캘린더</span>
-                  <div className="w-12" />
+          <div className="relative mx-auto w-full max-w-[400px] lg:mx-0 lg:max-w-none">
+            <div className="rounded-xl border border-slate-200 bg-white p-1 shadow-sm shadow-slate-200/50">
+              <div className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+                <div className="flex gap-1">
+                  <span className="h-2 w-2 rounded-full bg-slate-300" />
+                  <span className="h-2 w-2 rounded-full bg-slate-200" />
+                  <span className="h-2 w-2 rounded-full bg-slate-200" />
                 </div>
-
-                {/* calendar grid */}
-                <div className="p-3">
-                  <div className="mb-2 grid grid-cols-7 text-center">
-                    {["일", "월", "화", "수", "목", "금", "토"].map((d, i) => (
-                      <span key={d} className={`py-1 text-[10px] font-semibold ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-400"}`}>
-                        {d}
-                      </span>
-                    ))}
-                  </div>
-                  {[
-                    [null, null, null, 1, 2, 3, 4],
-                    [5, 6, 7, 8, 9, 10, 11],
-                    [12, 13, 14, 15, 16, 17, 18],
-                    [19, 20, 21, 22, 23, 24, 25],
-                    [26, 27, 28, 29, 30, null, null],
-                  ].map((row, ri) => (
-                    <div key={ri} className="grid grid-cols-7">
-                      {row.map((day, ci) => (
-                        <div key={ci} className="min-h-[42px] border border-gray-50 p-0.5">
-                          {day && (
-                            <>
-                              <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium ${day === 26 ? "bg-indigo-600 text-white" : ci === 0 ? "text-red-400" : ci === 6 ? "text-blue-400" : "text-gray-600"}`}>
-                                {day}
-                              </span>
-                              {day === 7  && <div className="mt-0.5 truncate rounded px-1 text-[8px] bg-sky-100 text-sky-700">팀 스탠드업</div>}
-                              {day === 14 && <div className="mt-0.5 truncate rounded px-1 text-[8px] bg-violet-100 text-violet-700">알바 오픈조</div>}
-                              {day === 16 && <div className="mt-0.5 truncate rounded px-1 text-[8px] bg-emerald-100 text-emerald-700">개인 운동</div>}
-                              {day === 21 && <div className="mt-0.5 truncate rounded px-1 text-[8px] bg-sky-100 text-sky-700">주간 회의</div>}
-                              {day === 23 && <div className="mt-0.5 truncate rounded px-1 text-[8px] bg-rose-100 text-rose-700">마감 데드라인</div>}
-                              {day === 26 && <div className="mt-0.5 truncate rounded px-1 text-[8px] bg-indigo-100 text-indigo-700">월간 리뷰</div>}
-                              {day === 28 && <div className="mt-0.5 truncate rounded px-1 text-[8px] bg-violet-100 text-violet-700">알바 교대</div>}
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                <span className="flex-1 text-center text-[10px] font-medium text-slate-400">캘린더 미리보기</span>
+              </div>
+              <div className="p-3">
+                <div className="mb-2 grid grid-cols-7 text-center text-[9px] font-medium text-slate-400">
+                  {["일", "월", "화", "수", "목", "금", "토"].map(d => (
+                    <span key={d}>{d}</span>
                   ))}
                 </div>
-
-                {/* calendar legend */}
-                <div className="flex gap-1.5 border-t border-gray-100 bg-gray-50/50 px-3 py-2">
-                  <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[9px] font-medium text-sky-700">● 팀 업무</span>
-                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[9px] font-medium text-violet-700">● 알바</span>
-                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9px] font-medium text-emerald-700">● 개인</span>
-                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[9px] font-medium text-rose-700">● 마감</span>
-                </div>
-              </div>
-
-              {/* floating badge 1 */}
-              <div className="absolute -right-4 top-12 rounded-xl border border-indigo-100 bg-white px-3 py-2 shadow-lg">
-                <p className="text-[10px] font-bold text-indigo-700">🔗 링크 공유</p>
-                <p className="text-[9px] text-gray-500">게스트 승인·차단</p>
-              </div>
-
-              {/* floating badge 2 */}
-              <div className="absolute -left-4 bottom-16 rounded-xl border border-emerald-100 bg-white px-3 py-2 shadow-lg">
-                <p className="text-[10px] font-bold text-emerald-700">🗺️ 길찾기</p>
-                <p className="text-[9px] text-gray-500">네이버·티맵</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── QUICK HOOKS ── */}
-      <section className="border-b border-gray-100 bg-gradient-to-r from-gray-50 via-indigo-50/30 to-violet-50/30 py-4">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-4 gap-y-2 px-4 text-center sm:gap-x-8">
-          {[
-            "📎 링크만 던져도 초대 끝",
-            "✋ 게스트 승인·이름 관리",
-            "🚶 네이버·티맵 길찾기",
-            "📆 월·주·목록 한 앱에서",
-          ].map(line => (
-            <span key={line} className="text-xs font-bold text-gray-700 sm:text-sm">
-              {line}
-            </span>
-          ))}
-        </div>
-      </section>
-
-      {/* ── PAIN → SOLUTION ── */}
-      <section id="why" className="border-y border-gray-100 bg-gray-50 py-16">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6">
-          <div className="mb-10 text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-indigo-500">여기 한 번만 읽어보세요</p>
-            <h2 className="mt-2 text-2xl font-extrabold leading-snug text-gray-900 sm:text-3xl break-keep">
-              아래 중 하나라도 해당되면, 이미 일정 때문에 <span className="text-indigo-600">매일 대가 치르는 중</span>입니다
-            </h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm text-gray-600 sm:text-base">
-              단톡·스샷·구글캘린더를 오가며 낭비한 10분 × 한 달이면, 새 제품을 배우기엔 충분한 시간이에요. 먼저 체감부터 바꿉니다.
-            </p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {painPoints.map((p, i) => (
-              <div key={i} className="rounded-2xl border border-white bg-white p-6 shadow-sm">
-                <div className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${p.color}`}>
-                  {p.icon}
-                </div>
-                <p className="mt-4 font-bold text-gray-800">❌ &nbsp;{p.problem}</p>
-                <div className="my-3 h-px bg-gray-100" />
-                <p className="text-sm leading-relaxed text-gray-500">✅ &nbsp;{p.solution}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── FEATURES ── */}
-      <section id="features" className="py-24">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6">
-          <div className="mb-14 text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-fuchsia-600">기능은 많지만 핵심은 하나</p>
-            <h2 className="mt-2 text-3xl font-extrabold leading-tight text-gray-900 sm:text-4xl break-keep">
-              공유는 쉽게, 통제는 확실히 — <span className="text-indigo-600">실사용</span>을 기준으로 깎아 냈습니다
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl text-gray-600">
-              멀티 공유 링크·게스트 승인·길찾기·장소 검색·모바일 입력까지. &quot;PPT용 기능&quot; 말고, <strong className="text-gray-900">현장에서 매일 닿는 기능</strong>만 모았습니다.
-            </p>
-          </div>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map(f => (
-              <div key={f.title} className="group rounded-2xl border border-gray-100 bg-white p-6 shadow-sm transition hover:border-indigo-200 hover:shadow-md">
-                <div className="mb-4 flex items-center justify-between">
-                  <span className="text-2xl">{f.icon}</span>
-                  <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${f.tagColor}`}>{f.tag}</span>
-                </div>
-                <h3 className="text-base font-bold text-gray-900">{f.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-gray-500">{f.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── USE CASES ── */}
-      <section id="usecases" className="bg-gray-50 py-24">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6">
-          <div className="mb-14 text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-indigo-500">누가 써도 설명이 짧아집니다</p>
-            <h2 className="mt-2 text-3xl font-extrabold leading-tight text-gray-900 sm:text-4xl break-keep">
-              회사든 알바든 1인이든 — <span className="text-violet-600">통은 같고, 권한만 다릅니다</span>
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-gray-600">
-              규모를 가르지 않습니다. 일정을 같이 잡는 모든 사람이 <strong className="text-gray-900">덜 싸우고 더 빨리 실행</strong>하는 도구를 지향합니다.
-            </p>
-          </div>
-          <div className="grid gap-6 sm:grid-cols-3">
-            {useCases.map(u => (
-              <div key={u.title} className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-                {/* card header */}
-                <div className={`${u.color} px-6 py-5`}>
-                  <span className="text-4xl">{u.emoji}</span>
-                  <p className="mt-3 text-sm font-semibold text-white/80">{u.who}</p>
-                  <h3 className="mt-0.5 text-lg font-extrabold text-white">{u.title}</h3>
-                </div>
-                {/* card body */}
-                <div className="px-6 py-5">
-                  <p className="text-sm leading-relaxed text-gray-500">{u.desc}</p>
-                  <div className="mt-4 flex flex-wrap gap-1.5">
-                    {u.tags.map(t => (
-                      <span key={t} className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-600">{t}</span>
+                {[
+                  [null, null, null, 1, 2, 3, 4],
+                  [5, 6, 7, 8, 9, 10, 11],
+                  [12, 13, 14, 15, 16, 17, 18],
+                  [19, 20, 21, 22, 23, 24, 25],
+                  [26, 27, 28, 29, 30, null, null],
+                ].map((row, ri) => (
+                  <div key={ri} className="grid grid-cols-7 gap-px">
+                    {row.map((day, ci) => (
+                      <div key={ci} className="min-h-[38px] rounded-sm bg-slate-50/50 p-0.5">
+                        {day ? (
+                          <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded text-[10px] text-slate-700">
+                            {day}
+                          </span>
+                        ) : null}
+                      </div>
                     ))}
                   </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-b border-slate-200/80 bg-white py-4">
+        <div className="mx-auto flex max-w-5xl flex-wrap justify-center gap-x-6 gap-y-2 px-4 text-center text-[12px] text-slate-600 sm:justify-start sm:px-6">
+          <span>링크 기반 공유</span>
+          <span className="hidden text-slate-300 sm:inline">·</span>
+          <span>게스트·승인 옵션</span>
+          <span className="hidden text-slate-300 sm:inline">·</span>
+          <span>월·주·목록</span>
+          <span className="hidden text-slate-300 sm:inline">·</span>
+          <span>지도 길찾기</span>
+        </div>
+      </section>
+
+      <section id="values" className="border-b border-slate-200/80 py-16 sm:py-20">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">왜 캘린더를 나누는지</h2>
+          <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-slate-600">
+            같은 사람이라도 보여줄 일정이 달라질 때가 있습니다. SyncNest는 그 경계를 제품 안에서 정리합니다.
+          </p>
+          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {valueProps.map(v => (
+              <div key={v.title} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <v.Icon className="h-5 w-5 text-slate-700" />
+                <h3 className="mt-3 text-[14px] font-semibold text-slate-900">{v.title}</h3>
+                <p className="mt-2 text-[13px] leading-relaxed text-slate-600">{v.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="features" className="py-16 sm:py-20">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">기능</h2>
+          <p className="mt-2 max-w-2xl text-[15px] text-slate-600">
+            자주 쓰는 흐름 위주로 정리했습니다. 세부는 대시보드에서 직접 확인해 보셔도 됩니다.
+          </p>
+          <div className="mt-10 grid gap-4 sm:grid-cols-2">
+            {features.map(f => (
+              <div
+                key={f.title}
+                className="flex gap-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300"
+              >
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-700">
+                  <f.Icon className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[14px] font-semibold text-slate-900">{f.title}</h3>
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">{f.tag}</span>
+                  </div>
+                  <p className="mt-2 text-[13px] leading-relaxed text-slate-600">{f.desc}</p>
                 </div>
               </div>
             ))}
@@ -442,105 +331,67 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── HOW IT WORKS ── */}
-      <section id="howto" className="py-24">
+      <section id="usecases" className="border-y border-slate-200/80 bg-white py-16 sm:py-20">
         <div className="mx-auto max-w-5xl px-4 sm:px-6">
-          <div className="mb-14 text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-indigo-500">How It Works</p>
-            <h2 className="mt-2 text-3xl font-extrabold text-gray-900 sm:text-4xl">
-              가입하고 나면 할 일은 이것뿐
-            </h2>
-            <p className="mx-auto mt-3 max-w-lg text-sm text-gray-600 sm:text-base">
-              복잡한 세팅은 빼고, 바로 초대·공유·이동까지 연결했습니다.
-            </p>
-          </div>
-          <div className="grid gap-8 sm:grid-cols-3">
-            {steps.map((s, i) => (
-              <div key={s.num} className="relative text-center">
-                {/* connector */}
-                {i < steps.length - 1 && (
-                  <div className="absolute left-[calc(50%+40px)] top-6 hidden h-px w-[calc(100%-80px)] border-t-2 border-dashed border-indigo-100 sm:block" />
-                )}
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-lg font-extrabold text-white shadow-lg shadow-indigo-200">
-                  {s.num}
-                </div>
-                <h3 className="mt-5 text-base font-bold text-gray-900">{s.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-gray-500">{s.desc}</p>
+          <h2 className="text-xl font-semibold tracking-tight text-slate-900 sm:text-2xl">활용 예</h2>
+          <p className="mt-2 text-[15px] text-slate-600">규모보다는 역할에 맞춘 예시입니다.</p>
+          <div className="mt-10 grid gap-5 sm:grid-cols-3">
+            {useCases.map(u => (
+              <div key={u.title} className="flex flex-col rounded-lg border border-slate-200 bg-[#fafafa] p-5">
+                <h3 className="text-[14px] font-semibold text-slate-900">{u.title}</h3>
+                <p className="mt-2 flex-1 text-[13px] leading-relaxed text-slate-600">{u.subtitle}</p>
+                <ul className="mt-4 space-y-1.5 border-t border-slate-200 pt-4">
+                  {u.bullets.map(b => (
+                    <li key={b} className="text-[12px] text-slate-500">
+                      {b}
+                    </li>
+                  ))}
+                </ul>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── HIGHLIGHT BANNER ── */}
-      <section className="py-16">
+      <section id="start" className="py-16 sm:py-20">
         <div className="mx-auto max-w-5xl px-4 sm:px-6">
-          <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-600 to-violet-600 p-1 shadow-2xl shadow-indigo-200">
-            <div className="rounded-[calc(1.5rem-4px)] bg-gradient-to-br from-indigo-600 to-violet-600 px-8 py-14 text-center">
-              <p className="text-sm font-semibold uppercase tracking-widest text-indigo-200">SyncNest</p>
-              <h2 className="mt-3 text-3xl font-extrabold leading-tight text-white sm:text-4xl break-keep">
-                일정은 공유할수록 편해져야지, <span className="text-amber-200">불안해지면 안 됩니다</span>
-              </h2>
-              <p className="mx-auto mt-4 max-w-2xl text-base text-indigo-100 sm:text-lg">
-                링크 하나로 열리되, 문지기는 당신. 뷰는 바꿔 맞추고, 갈 길은 지도로 바로 연결하세요. 지금 가입비 0원 — 늦게 올수록 계속 캡처만 보냅니다.
-              </p>
-              <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <Link href="/login"
-                  className="rounded-xl bg-white px-8 py-3.5 text-sm font-bold text-indigo-600 shadow-lg hover:bg-indigo-50 transition-all">
-                  지금 0원으로 시작하기 →
-                </Link>
+          <h2 className="text-center text-xl font-semibold text-slate-900 sm:text-2xl">시작 순서</h2>
+          <div className="mx-auto mt-10 grid max-w-3xl gap-8 sm:grid-cols-3">
+            {steps.map(s => (
+              <div key={s.step} className="text-center">
+                <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 text-[13px] font-semibold text-slate-800">
+                  {s.step}
+                </div>
+                <h3 className="mt-4 text-[14px] font-semibold text-slate-900">{s.title}</h3>
+                <p className="mt-2 text-[13px] leading-relaxed text-slate-600">{s.desc}</p>
               </div>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ── CTA ── */}
-      <section className="bg-gray-50 py-20">
-        <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
-          <h2 className="text-3xl font-extrabold leading-tight text-gray-900 sm:text-4xl break-keep">
-            내일 또 &quot;일정 몰라서&quot; 미안해하지 말고, <span className="text-indigo-600">오늘 링크 하나로 끝내요</span>
-          </h2>
-          <p className="mx-auto mt-4 max-w-xl text-gray-600">
-            팀이 커도, 알바가 바뀌어도, 나 혼자여도. 캘린더는 나누고 실행은 한곳에서. 지금은 베타로 무료 — 먼저 써본 사람이 다음 스프린트 레이아웃을 정합니다.
+      <section className="px-4 pb-16 sm:px-6">
+        <div className="mx-auto max-w-5xl rounded-xl bg-slate-900 px-6 py-12 text-center sm:px-12 sm:py-14">
+          <h2 className="text-xl font-semibold text-white sm:text-2xl">지금 바로 써 보기</h2>
+          <p className="mx-auto mt-3 max-w-lg text-[14px] leading-relaxed text-slate-400">
+            베타 기간 동안 무료로 열려 있습니다. 정책 변경 시 서비스 내에서 안내드립니다.
           </p>
-          <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <Link href="/login"
-              className="rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-8 py-4 text-base font-bold text-white shadow-lg shadow-indigo-200 hover:from-indigo-700 hover:to-violet-700 transition-all">
-              3초 만에 가입하고 바로 공유 →
-            </Link>
-            <Link href="/dashboard"
-              className="rounded-xl border-2 border-gray-200 bg-white px-8 py-4 text-base font-bold text-gray-800 hover:border-indigo-200 transition-all">
-              이미 계정 있음 → 대시보드
-            </Link>
-          </div>
-          <p className="mt-5 text-xs font-medium text-gray-500">
-            Google · 네이버 · 카카오 로그인 · 카드/결제 없음 · 베타 기간 무료 (정책은 서비스 내 공지 따름)
-          </p>
+          <Link
+            href="/login"
+            className="mt-6 inline-flex rounded-md bg-white px-5 py-2.5 text-[14px] font-medium text-slate-900 transition hover:bg-slate-100"
+          >
+            계속하기
+          </Link>
         </div>
       </section>
 
-      {/* ── FOOTER ── */}
-      <footer className="border-t border-gray-100 bg-white py-12">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6">
-          <div className="flex flex-col items-center gap-6 sm:flex-row sm:justify-between">
-            <div>
-              <span className="text-xl font-extrabold tracking-tight text-indigo-600">SyncNest</span>
-              <p className="mt-1 text-xs text-gray-400">스마트한 일정 공유 플랫폼</p>
-            </div>
-            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-gray-400 sm:justify-end">
-              <span>멀티 공유·게스트 승인</span>
-              <span>·</span>
-              <span>권한형 캘린더</span>
-              <span>·</span>
-              <span>댓글·활동 로그</span>
-              <span>·</span>
-              <span>길찾기·장소 검색</span>
-              <span>·</span>
-              <span>Google 연동</span>
-            </div>
-            <p className="text-xs text-gray-400">© 2026 SyncNest. All rights reserved.</p>
+      <footer className="border-t border-slate-200 bg-white py-10">
+        <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-6 px-4 text-[12px] text-slate-500 sm:flex-row sm:px-6">
+          <div>
+            <span className="font-semibold text-slate-800">SyncNest</span>
+            <p className="mt-1">일정 공유·권한 관리</p>
           </div>
+          <p>© {new Date().getFullYear()} SyncNest</p>
         </div>
       </footer>
     </div>

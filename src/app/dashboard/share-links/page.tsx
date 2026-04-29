@@ -54,21 +54,39 @@ function recentLabel(iso: string) {
   return null;
 }
 
+const EMPTY_OVERVIEW = { calendars: [] as CalBlock[], multiShares: [] as MultiRow[] };
+
 export default function ShareLinksManagePage() {
   const { status } = useSession();
   const router = useRouter();
   const [data, setData] = useState<{ calendars: CalBlock[]; multiShares: MultiRow[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
 
-  const load = useCallback(async () => {
-    const res = await fetch("/api/account/share-overview", { cache: "no-store" });
-    if (!res.ok) {
-      setErr("불러오지 못했어요.");
-      return;
-    }
-    const d = (await res.json()) as { calendars: CalBlock[]; multiShares: MultiRow[] };
-    setData(d);
+  const load = useCallback(async (mode: "initial" | "refresh" = "refresh") => {
+    if (mode === "initial") setReady(false);
     setErr(null);
+    try {
+      const res = await fetch("/api/account/share-overview", { cache: "no-store" });
+      if (!res.ok) {
+        const msg =
+          res.status === 401
+            ? "로그인이 필요합니다."
+            : res.status === 403
+              ? "접근할 수 없습니다."
+              : `목록을 불러오지 못했습니다. (${res.status})`;
+        setErr(msg);
+        setData(EMPTY_OVERVIEW);
+        return;
+      }
+      const d = (await res.json()) as { calendars: CalBlock[]; multiShares: MultiRow[] };
+      setData(d);
+    } catch {
+      setErr("네트워크 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      setData(EMPTY_OVERVIEW);
+    } finally {
+      if (mode === "initial") setReady(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -76,7 +94,11 @@ export default function ShareLinksManagePage() {
   }, [status, router]);
 
   useEffect(() => {
-    if (status === "authenticated") void load();
+    if (status !== "authenticated") return;
+    const id = requestAnimationFrame(() => {
+      void load("initial");
+    });
+    return () => cancelAnimationFrame(id);
   }, [status, load]);
 
   async function patchVisitor(multiShareId: string, visitorId: string, ownerLabel: string) {
@@ -85,7 +107,7 @@ export default function ShareLinksManagePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ownerLabel }),
     });
-    void load();
+    void load("refresh");
   }
 
   async function patchCalVisitor(calendarId: string, linkId: string, visitorId: string, ownerLabel: string) {
@@ -94,7 +116,7 @@ export default function ShareLinksManagePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ownerLabel }),
     });
-    void load();
+    void load("refresh");
   }
 
   async function patchCalVisitorMeta(
@@ -108,7 +130,7 @@ export default function ShareLinksManagePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    void load();
+    void load("refresh");
   }
 
   async function patchLinkGuestFlag(calendarId: string, linkId: string, guestApprovalRequired: boolean) {
@@ -117,7 +139,7 @@ export default function ShareLinksManagePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guestApprovalRequired }),
     });
-    void load();
+    void load("refresh");
   }
 
   async function patchMsVisitorMeta(
@@ -130,7 +152,7 @@ export default function ShareLinksManagePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    void load();
+    void load("refresh");
   }
 
   async function patchMsGuestFlag(multiShareId: string, guestApprovalRequired: boolean) {
@@ -139,10 +161,18 @@ export default function ShareLinksManagePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ guestApprovalRequired }),
     });
-    void load();
+    void load("refresh");
   }
 
-  if (status === "loading" || !data) {
+  if (status === "loading" || (status === "authenticated" && !ready)) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (status !== "authenticated" || !data) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
@@ -162,7 +192,20 @@ export default function ShareLinksManagePage() {
       </header>
 
       <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-        {err && <p className="text-sm text-red-600">{err}</p>}
+        {err && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <p className="font-medium">{err}</p>
+            <button
+              type="button"
+              onClick={() => {
+                void load("initial");
+              }}
+              className="mt-2 text-xs font-semibold text-red-700 underline hover:text-red-900"
+            >
+              다시 시도
+            </button>
+          </div>
+        )}
 
         <p className="text-sm text-gray-600">
           캘린더별 비회원 링크와 동시 공유 링크를 한곳에서 확인하세요. 접속이 찍힌 뒤 게스트 이름을 붙이면 구분하기 쉬워요.
